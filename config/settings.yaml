@@ -1,0 +1,49 @@
+project_name: petrovaradin_info_archive
+keywords:
+  - Petrovaradin
+  - Петроварадин
+# Kandidati za kasniju, zasebno odobrenu pretragu. Trenutno nisu aktivni.
+candidate_keywords:
+  - Oficirac
+  - Mišeluk
+  - Tranžament
+  - Tekije
+  - Alibegovac
+  - Vezirac
+data_dir: data
+database: data/archive.sqlite3
+html_dir: data/html
+file_dir: data/files
+text_dir: data/text
+request:
+  timeout_seconds: 30
+  delay_seconds: 1.5
+  max_retries: 3
+  respect_robots_txt: true
+  max_response_mb: 20
+  max_sitemaps_per_site: 100
+  # Samo za poznati JGSP server sa samopotpisanim sertifikatom.
+  tls_insecure_hosts: ["gspns.co.rs", "www.gspns.co.rs"]
+archive:
+  # HTML je ograničen gornjim request limitom. Ovi limiti važe za priloge.
+  max_document_mb: 30
+  max_image_mb: 8
+  max_assets_per_page: 25
+  max_total_assets_mb: 60
+  max_asset_archive_mb: 2048
+  save_linked_documents: true
+  save_article_images: true
+  document_extensions: [pdf, doc, docx, odt, rtf, txt, csv, xls, xlsx]
+  image_extensions: [jpg, jpeg, png, webp, gif, tif, tiff, svg]
+selenium:
+  browser: chrome
+  headless: true
+  page_wait_seconds: 2
+  timeout_seconds: 20
+  page_load_timeout_seconds: 30
+google_search:
+  max_pages: 30
+  page_wait_seconds: 2
+sitemap_content_scan:
+  max_urls_per_site_run: 1000
+  max_sitemaps_per_site: 100

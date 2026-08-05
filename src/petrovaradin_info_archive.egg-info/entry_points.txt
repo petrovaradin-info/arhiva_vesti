@@ -1,0 +1,2 @@
+[console_scripts]
+petrovaradin-archive = petrovaradin_archive.cli:main
