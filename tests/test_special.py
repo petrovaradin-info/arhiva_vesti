@@ -58,6 +58,7 @@ def test_both_scripts_share_record_but_keep_discoveries(tmp_path):
     assert repo.stats()["discoveries"] == 2
     assert repo.stats()["records"] == 1
     assert repo.stats()["script_overlap"] == 1
+    assert repo.stats()["copies"] == 2
 
 
 def test_pending_includes_retry_for_resume(tmp_path):
@@ -71,5 +72,5 @@ def test_pending_includes_retry_for_resume(tmp_path):
     )
     repo.connection.commit()
     pending = repo.pending(10)
-    assert len(pending) == 1
-    assert pending[0]["attempts"] == 1
+    assert len(pending) == 2
+    assert [row["attempts"] for row in pending] == [1, 0]
