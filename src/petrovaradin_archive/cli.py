@@ -174,7 +174,7 @@ def cmd_special_discover(args: argparse.Namespace) -> int:
     try:
         result = PretrazivaDiscoverer(
             repository, client, resolve_path(root, settings["data_dir"]) / "special" / "discovery"
-        ).run(args.max_pages)
+        ).run(args.max_pages, args.results_per_page)
         stats = repository.stats()
     finally:
         db.close()
@@ -190,6 +190,14 @@ def cmd_special_discover(args: argparse.Namespace) -> int:
 def cmd_special_download(args: argparse.Namespace) -> int:
     root, settings, sites, db, client = context(args.config_dir)
     repository = SpecialRepository(db.connection)
+    if args.requeue:
+        placeholders = ",".join("?" for _ in args.requeue)
+        repository.connection.execute(
+            f"UPDATE special_copies SET download_status='retry',error=NULL "
+            f"WHERE download_status IN ({placeholders})",
+            args.requeue,
+        )
+        repository.connection.commit()
     downloader = SpecialDownloader(
         repository, client, resolve_path(root, settings["data_dir"]) / "special" / "content",
         settings.get("keywords", ["Petrovaradin", "Петроварадин"]),
@@ -694,6 +702,7 @@ def build_parser() -> argparse.ArgumentParser:
         "special-discover", help="Odvojeno otkriva zapise iz specijalizovanih baza"
     )
     special_discover.add_argument("--max-pages", type=int, default=2)
+    special_discover.add_argument("--results-per-page", type=int, choices=[10, 100], default=100)
     special_discover.set_defaults(func=cmd_special_discover)
 
     special_download = sub.add_parser(
@@ -701,6 +710,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     special_download.add_argument("--limit", type=int, default=100)
     special_download.add_argument("--mode", choices=["http", "selenium", "hybrid"], default="hybrid")
+    special_download.add_argument(
+        "--requeue", action="append",
+        choices=["no_keyword", "unavailable", "blocked", "manual_capture_needed"],
+        help="Pre pokretanja vrati odabrani završni status u retry",
+    )
     special_download.set_defaults(func=cmd_special_download)
 
     special_stats = sub.add_parser("special-stats", help="Statistika specijalizovanog podsistema")

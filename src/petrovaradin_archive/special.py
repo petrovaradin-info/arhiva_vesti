@@ -206,18 +206,21 @@ class SpecialRepository:
             FROM special_discoveries d JOIN special_records r ON r.id=d.record_id"""
         ).fetchall()
         for row in discoveries:
-            url = row["original_url"] or row["search_result_url"]
-            if not url:
-                continue
-            existing = self.connection.execute(
-                "SELECT id FROM urls WHERE canonical_url=?", (canonicalize_url(url),)
-            ).fetchone()
-            self.connection.execute(
-                """INSERT OR IGNORE INTO special_copies
-                (record_id,url,canonical_url,portal_name,existing_url_id) VALUES(?,?,?,?,?)""",
-                (row["record_id"], url, canonical_special_url(url),
-                 row["original_source_name"], existing[0] if existing else None),
-            )
+            candidates = []
+            if row["search_result_url"]:
+                candidates.append((row["search_result_url"], "pretraziva.rs"))
+            if row["original_url"] and row["original_url"] != row["search_result_url"]:
+                candidates.append((row["original_url"], row["original_source_name"]))
+            for url, portal_name in candidates:
+                existing = self.connection.execute(
+                    "SELECT id FROM urls WHERE canonical_url=?", (canonicalize_url(url),)
+                ).fetchone()
+                self.connection.execute(
+                    """INSERT OR IGNORE INTO special_copies
+                    (record_id,url,canonical_url,portal_name,existing_url_id) VALUES(?,?,?,?,?)""",
+                    (row["record_id"], url, canonical_special_url(url), portal_name,
+                     existing[0] if existing else None),
+                )
 
     def start_session(self, pages: int) -> int:
         cur = self.connection.execute(
@@ -277,8 +280,12 @@ class SpecialRepository:
             (session_id, page_id, record_id, keyword, script, page_number, position,
              result.search_result_url, result.original_url),
         )
-        copy_url = result.original_url or result.search_result_url
-        if copy_url:
+        copy_urls = []
+        if result.search_result_url:
+            copy_urls.append((result.search_result_url, "pretraziva.rs"))
+        if result.original_url and result.original_url != result.search_result_url:
+            copy_urls.append((result.original_url, result.original_source_name))
+        for copy_url, portal_name in copy_urls:
             canonical = canonical_special_url(copy_url)
             existing = self.connection.execute(
                 "SELECT id FROM urls WHERE canonical_url=?", (canonicalize_url(copy_url),)
@@ -286,7 +293,7 @@ class SpecialRepository:
             self.connection.execute(
                 """INSERT OR IGNORE INTO special_copies
                 (record_id,url,canonical_url,portal_name,existing_url_id) VALUES(?,?,?,?,?)""",
-                (record_id, copy_url, canonical, result.original_source_name,
+                (record_id, copy_url, canonical, portal_name,
                  existing[0] if existing else None),
             )
         self.connection.execute(
@@ -297,7 +304,9 @@ class SpecialRepository:
 
     def pending(self, limit: int) -> list[sqlite3.Row]:
         return list(self.connection.execute(
-            "SELECT * FROM special_copies WHERE download_status IN ('pending','retry') ORDER BY id LIMIT ?",
+            """SELECT c.*,r.title record_title,r.description record_description
+            FROM special_copies c JOIN special_records r ON r.id=c.record_id
+            WHERE c.download_status IN ('pending','retry') ORDER BY c.id LIMIT ?""",
             (limit,),
         ))
 
@@ -345,15 +354,18 @@ class PretrazivaDiscoverer:
         self.client = client
         self.discovery_dir = discovery_dir
 
-    def run(self, max_pages: int) -> dict[str, int]:
+    def run(self, max_pages: int, results_per_page: int = 100) -> dict[str, int]:
         session_id = self.repository.start_session(max_pages)
         found = created = 0
         try:
             for keyword, script in self.QUERIES:
                 url = "https://pretraziva.rs/pretraga?" + urlencode(
-                    {"search": keyword, "advanced": ""}
+                    {"search": keyword, "advanced": "1", "results": results_per_page,
+                     "sort": "score", "path": "*"}
                 )
-                for page_number in range(1, max_pages + 1):
+                page_number = 0
+                while url and (max_pages <= 0 or page_number < max_pages):
+                    page_number += 1
                     started = time.monotonic()
                     print(f"[{script}] [{page_number}/{max_pages}] otvaram: {url}", flush=True)
                     response = self.client.get(url)
@@ -376,7 +388,8 @@ class PretrazivaDiscoverer:
                         )
                         created += int(is_new)
                     elapsed = time.monotonic() - started
-                    pct = page_number / max_pages * 100
+                    expected_pages = ((total or 0) + results_per_page - 1) // results_per_page
+                    pct = page_number / expected_pages * 100 if expected_pages else 0
                     print(f"  -> archived {len(results)} rezultata ({pct:.0f}%, {elapsed:.2f}s)", flush=True)
                     if not next_url:
                         break
@@ -414,6 +427,25 @@ class SpecialDownloader:
         self.driver.get(url)
         return self.driver.page_source.encode(), self.driver.current_url
 
+    def _store_payload(self, payload: bytes, final_url: str, content_type: str,
+                       kind: str, text: str) -> tuple[str, str, str]:
+        digest = hashlib.sha256(payload).hexdigest()
+        normalized_text = re.sub(r"\s+", " ", text.casefold()).strip()
+        fingerprint = hashlib.sha256(normalized_text.encode()).hexdigest() if normalized_text else digest
+        host = urlsplit(final_url).hostname or "unknown"
+        folder = self.data_dir / host
+        folder.mkdir(parents=True, exist_ok=True)
+        if kind == "html":
+            archive = folder / f"{digest}.html.gz"
+            if not archive.exists():
+                with gzip.open(archive, "wb") as handle:
+                    handle.write(payload)
+        else:
+            archive = folder / f"{digest}.{safe_extension(final_url, content_type, kind)}"
+            if not archive.exists():
+                archive.write_bytes(payload)
+        return digest, fingerprint, str(archive)
+
     def run(self, limit: int, mode: str = "hybrid") -> dict[str, int]:
         rows = self.repository.pending(limit)
         counts = {k: 0 for k in ("archived", "no_keyword", "retry", "unavailable", "blocked", "manual_capture_needed")}
@@ -434,25 +466,22 @@ class SpecialDownloader:
                     content_type, http_status = response.headers.get("content-type", ""), response.status_code
                 kind = content_kind(final_url, content_type)
                 text = extract_text(payload, kind, final_url)
-                searchable = f"{row['url']} {text}".casefold()
+                searchable = (
+                    f"{row['url']} {row['record_title']} {row['record_description']} {text}"
+                ).casefold()
                 matched = any(k in searchable for k in self.keywords)
+                digest, fingerprint, archive_path = self._store_payload(
+                    payload, final_url, content_type, kind, text
+                )
                 if not matched:
                     self.repository.connection.execute(
-                        "UPDATE special_copies SET download_status='no_keyword',attempts=attempts+1,http_status=?,final_url=? WHERE id=?",
-                        (http_status, final_url, row["id"]),
+                        """UPDATE special_copies SET download_status='no_keyword',attempts=attempts+1,
+                        http_status=?,final_url=?,content_type=?,content_sha256=?,text_fingerprint=?,
+                        archive_path=?,size_bytes=?,downloaded_at=CURRENT_TIMESTAMP,error=NULL WHERE id=?""",
+                        (http_status, final_url, content_type, digest, fingerprint,
+                         archive_path, len(payload), row["id"]),
                     ); counts["no_keyword"] += 1
                 else:
-                    digest = hashlib.sha256(payload).hexdigest()
-                    normalized_text = re.sub(r"\s+", " ", text.casefold()).strip()
-                    fingerprint = hashlib.sha256(normalized_text.encode()).hexdigest() if normalized_text else digest
-                    host = urlsplit(final_url).hostname or "unknown"
-                    folder = self.data_dir / host; folder.mkdir(parents=True, exist_ok=True)
-                    if kind == "html":
-                        archive = folder / f"{digest}.html.gz"
-                        with gzip.open(archive, "wb") as handle: handle.write(payload)
-                    else:
-                        archive = folder / f"{digest}.{safe_extension(final_url, content_type, kind)}"
-                        archive.write_bytes(payload)
                     group = self.repository.connection.execute(
                         "INSERT OR IGNORE INTO special_duplicate_groups(fingerprint) VALUES(?)", (fingerprint,)
                     )
@@ -463,7 +492,8 @@ class SpecialDownloader:
                         """UPDATE special_copies SET download_status='archived',attempts=attempts+1,
                         http_status=?,final_url=?,content_type=?,content_sha256=?,text_fingerprint=?,
                         archive_path=?,size_bytes=?,downloaded_at=CURRENT_TIMESTAMP,error=NULL WHERE id=?""",
-                        (http_status, final_url, content_type, digest, fingerprint, str(archive), len(payload), row["id"]),
+                        (http_status, final_url, content_type, digest, fingerprint,
+                         archive_path, len(payload), row["id"]),
                     )
                     self.repository.connection.execute(
                         "UPDATE special_records SET duplicate_group_id=? WHERE id=?", (group_id, row["record_id"])
