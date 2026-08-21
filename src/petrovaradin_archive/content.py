@@ -15,7 +15,8 @@ IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "svg"}
 
 
 def decode_html(content: bytes | str) -> str:
-    """Decode HTML without BeautifulSoup emitting byte-decoding warnings."""
+
+    """Decode HTML deterministically without BeautifulSoup's noisy byte guessing."""
     if isinstance(content, str):
         return content
     for encoding in ("utf-8", "windows-1250", "windows-1251"):

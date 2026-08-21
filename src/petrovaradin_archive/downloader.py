@@ -15,6 +15,7 @@ from .database import ArchiveDB
 from .content import content_kind, decode_html, extract_text, safe_extension, url_extension
 from .http import PoliteClient
 from .urltools import host_matches
+from .article_adapters import extract_article
 
 
 class Downloader:
@@ -85,6 +86,7 @@ class Downloader:
                 f"[{position}/{total} | {percent:5.1f}%] "
                 f"[{row['site_id']}] URL #{row['id']}\n"
                 f"  {row['url']}",
+
                 flush=True,
             )
             try:
@@ -173,6 +175,7 @@ class Downloader:
                         f"  -> no_keyword ({strategy}, {time.monotonic()-item_started:.1f}s)",
                         flush=True,
                     )
+
                     continue
                 digest, archive_path, text_path = self._store_content(
                     content, final_url, content_type, kind
@@ -195,6 +198,17 @@ class Downloader:
                     extracted_text=text if kind != "html" else None,
                 )
                 if kind == "html":
+                    source_config = json.loads(source["config_json"] or "{}") if source else {}
+                    article = extract_article(
+                        content, final_url, source_config.get("adapter", "generic")
+                    )
+                    self.db.store_article_analysis(
+                        row["id"], title=article.title, body_text=article.body_text,
+                        published_at=article.published_at,
+                        canonical_url=article.canonical_url,
+                        original_source_url=article.original_source_url,
+                        adapter_name=article.adapter_name,
+                    )
                     self._queue_assets(row["id"], content, final_url, domains)
                 counts["archived"] += 1
                 source = self.db.source(row["site_id"])
@@ -205,6 +219,7 @@ class Downloader:
                     f"  -> {saved_status} ({strategy}, {kind}, {len(content)} B, "
                     f"{time.monotonic()-item_started:.1f}s)",
                     flush=True,
+
                 )
             except Exception as exc:
                 if isinstance(exc, PermissionError):
@@ -227,6 +242,7 @@ class Downloader:
             + "; ".join(f"{name}={count}" for name, count in counts.items()),
             flush=True,
         )
+
         return counts
 
     def _store_content(self, content: bytes, final_url: str, content_type: str,

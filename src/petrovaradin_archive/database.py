@@ -7,6 +7,7 @@ from pathlib import Path
 from .models import DiscoveredURL
 from .keywords import contains_keyword
 from .urltools import canonicalize_url, is_non_article_url
+from .article_adapters import content_fingerprint, hamming_distance, simhash
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -130,6 +131,16 @@ class ArchiveDB:
             "size_bytes": "INTEGER",
             "extracted_text_path": "TEXT",
             "extracted_text": "TEXT",
+            "article_title": "TEXT",
+            "article_text": "TEXT",
+            "published_at": "TEXT",
+            "canonical_from_page": "TEXT",
+            "original_source_url": "TEXT",
+            "adapter_name": "TEXT",
+            "content_fingerprint": "TEXT",
+            "simhash": "TEXT",
+            "duplicate_group_id": "INTEGER",
+            "is_primary": "INTEGER NOT NULL DEFAULT 1",
         }
         for name, sql_type in additions.items():
             if name not in columns:
@@ -153,6 +164,13 @@ class ArchiveDB:
             self.connection.execute(
                 "UPDATE sources SET public_enabled=0 WHERE manual_review=1"
             )
+        self.connection.commit()
+        self.connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_urls_fingerprint ON urls(content_fingerprint)"
+        )
+        self.connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_urls_duplicate_group ON urls(duplicate_group_id)"
+        )
         self.connection.commit()
 
     def sync_sources(self, sites: list[dict]) -> None:
@@ -322,6 +340,78 @@ class ArchiveDB:
         )
         self.connection.commit()
 
+    def store_article_analysis(self, row_id: int, *, title: str | None, body_text: str,
+                               published_at: str | None, canonical_url: str | None,
+                               original_source_url: str | None, adapter_name: str) -> int:
+        fingerprint = content_fingerprint(body_text)
+        article_simhash = simhash(body_text)
+        row = self.connection.execute(
+            "SELECT site_id FROM urls WHERE id=?", (row_id,)
+        ).fetchone()
+        primary_id = row_id
+        if fingerprint:
+            exact = self.connection.execute(
+                """SELECT id, duplicate_group_id FROM urls
+                   WHERE id<>? AND content_fingerprint=? ORDER BY id LIMIT 1""",
+                (row_id, fingerprint),
+            ).fetchone()
+            if exact:
+                primary_id = exact["duplicate_group_id"] or exact["id"]
+        if primary_id == row_id and article_simhash and len(body_text) >= 300:
+            candidates = self.connection.execute(
+                """SELECT id, duplicate_group_id, simhash, length(article_text) AS text_length
+                   FROM urls WHERE id<>? AND site_id<>? AND simhash IS NOT NULL
+                   AND length(article_text) BETWEEN ? AND ?""",
+                (row_id, row["site_id"], int(len(body_text) * 0.85), int(len(body_text) * 1.15)),
+            ).fetchall()
+            match = next(
+                (candidate for candidate in candidates
+                 if hamming_distance(article_simhash, candidate["simhash"]) <= 4), None
+            )
+            if match:
+                primary_id = match["duplicate_group_id"] or match["id"]
+        self.connection.execute(
+            """UPDATE urls SET article_title=?, article_text=?, published_at=?,
+               canonical_from_page=?, original_source_url=?, adapter_name=?,
+               content_fingerprint=?, simhash=?, duplicate_group_id=?, is_primary=?
+               WHERE id=?""",
+            (title, body_text, published_at, canonical_url, original_source_url, adapter_name,
+             fingerprint, article_simhash, primary_id, int(primary_id == row_id), row_id),
+        )
+        if primary_id != row_id:
+            self.connection.execute(
+                "UPDATE urls SET duplicate_group_id=?, is_primary=1 WHERE id=?",
+                (primary_id, primary_id),
+            )
+        self.connection.commit()
+        return primary_id
+
+    def unanalyzed_html_rows(self, limit: int, site_id: str | None = None) -> list[sqlite3.Row]:
+        parameters: list[object] = []
+        site_filter = ""
+        if site_id:
+            site_filter = " AND u.site_id=?"
+            parameters.append(site_id)
+        parameters.append(limit)
+        return list(self.connection.execute(
+            """SELECT u.*, s.config_json FROM urls u JOIN sources s ON s.id=u.site_id
+               WHERE u.download_status IN ('archived','awaiting_review')
+               AND u.media_kind='html' AND u.archive_path IS NOT NULL
+               AND u.article_text IS NULL""" + site_filter + " ORDER BY u.id LIMIT ?",
+            parameters,
+        ))
+
+    def duplicate_groups(self, limit: int = 100) -> list[sqlite3.Row]:
+        return list(self.connection.execute(
+            """SELECT p.id, p.site_id, p.url, p.article_title,
+                      COUNT(c.id) AS copies,
+                      GROUP_CONCAT(DISTINCT c.site_id) AS sites
+               FROM urls p JOIN urls c ON c.duplicate_group_id=p.id
+               WHERE p.id=p.duplicate_group_id
+               GROUP BY p.id HAVING COUNT(c.id)>1
+               ORDER BY copies DESC, p.id LIMIT ?""", (limit,)
+        ))
+
     def add_asset(self, url_id: int, url: str, kind: str) -> int | None:
         canonical = canonicalize_url(url)
         cursor = self.connection.execute(
@@ -367,17 +457,22 @@ class ArchiveDB:
         pattern = f"%{query}%"
         return list(self.connection.execute(
             """SELECT u.id, u.site_id, u.url, u.downloaded_at, u.archive_path,
-                      json_extract(u.metadata_json, '$.title') AS title
+                      COALESCE(u.article_title, json_extract(u.metadata_json, '$.title')) AS title,
+                      CASE WHEN u.duplicate_group_id IS NULL THEN 0 ELSE
+                        (SELECT COUNT(*)-1 FROM urls d
+                         WHERE d.duplicate_group_id=u.duplicate_group_id) END AS duplicate_copies
                FROM urls u JOIN sources s ON s.id=u.site_id
                WHERE u.download_status='archived'
                  AND u.access_status='visible'
                  AND s.public_enabled=1
-                 AND (u.url LIKE ? OR u.metadata_json LIKE ? OR u.extracted_text LIKE ?
+                 AND (u.duplicate_group_id IS NULL OR u.id=u.duplicate_group_id)
+                 AND (u.url LIKE ? OR u.metadata_json LIKE ? OR u.article_text LIKE ?
+                      OR u.extracted_text LIKE ?
                       OR EXISTS (SELECT 1 FROM assets a
                                  WHERE a.url_id=u.id AND a.status='archived'
                                    AND a.extracted_text LIKE ?))
                ORDER BY u.downloaded_at DESC LIMIT ?""",
-            (pattern, pattern, pattern, pattern, limit),
+            (pattern, pattern, pattern, pattern, pattern, limit),
         ))
 
     def mark_no_keyword(self, row_id: int, **values: object) -> None:

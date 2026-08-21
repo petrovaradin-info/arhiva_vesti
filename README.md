@@ -1,7 +1,7 @@
 # Petrovaradin Info Archive
 
 Odvojen istorijski kolektor za pronalaženje i arhiviranje vesti o Petrovaradinu.
-Ne menja postojeći RSS kolektor `feed_ALL.py`.
+RSS/feed obrada pripada drugom projektu i nije deo ovog kolektora.
 
 ## Šta radi
 
@@ -99,6 +99,30 @@ lokalna kopija čak i ako originalni URL kasnije nestane.
 
 SQLite tabela `discoveries` pamti svaki izvor koji je pronašao URL, čak i kada je
 sam URL već postojao u tabeli `urls`.
+
+## Prenete vesti i adapteri
+
+Posle arhiviranja HTML-a adapter izdvaja naslov, datum, glavni tekst, canonical URL i,
+kada je eksplicitno naveden uz oznaku poput `Izvor` ili `Preneto`, URL originalne vesti.
+Podržani su WordPress, Drupal i generički adapter; WordPress i Drupal se mogu i
+automatski prepoznati. Izvor može eksplicitno zadati `adapter: wordpress` u
+`config/sites.yaml`.
+
+Sve kopije ostaju sačuvane kao zasebni arhivski dokazi. Identičan ili veoma sličan
+tekst povezuje se preko `duplicate_group_id`, a redovna pretraga prikazuje primarni
+rezultat i broj dodatnih kopija umesto ponavljanja iste vesti. Stare arhive se
+analiziraju jednom, a nove automatski tokom preuzimanja:
+
+```powershell
+petrovaradin-archive analyze --limit 3000
+petrovaradin-archive analyze --site razglas_news --limit 500
+petrovaradin-archive duplicates --limit 100
+```
+
+BUKA je podešena kao web-search i WordPress izvor (`https://6yka.com/?s=petrovaradin`).
+Za izvore koji
+često prenose tuđe vesti postoji informativna oznaka `syndication_prone: true`; ona
+ne utiče na dostupnost i ne briše sadržaj.
 
 ## Upravljanje izvorima
 

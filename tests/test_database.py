@@ -133,3 +133,36 @@ def test_public_search_finds_text_inside_linked_asset(tmp_path):
         extracted_text="Budžet za Petrovaradin",
     )
     assert len(db.public_search("Petrovaradin")) == 1
+
+
+def test_republished_articles_are_grouped_but_both_are_preserved(tmp_path):
+    db = ArchiveDB(tmp_path / "archive.sqlite3")
+    db.sync_sources([
+        {"id": "first", "name": "First", "domains": ["first.rs"]},
+        {"id": "copy", "name": "Copy", "domains": ["copy.rs"]},
+    ])
+    body = "Petrovaradin je predmet ove arhivske vesti sa dovoljno sadržaja. " * 12
+    ids = []
+    for site in ("first", "copy"):
+        db.add(DiscoveredURL(f"https://{site}.rs/vest", site, "selenium_internal_search"))
+        row_id = db.connection.execute(
+            "SELECT id FROM urls WHERE site_id=?", (site,)
+        ).fetchone()[0]
+        ids.append(row_id)
+        db.mark_archived(
+            row_id, final_url=f"https://{site}.rs/vest", content_type="text/html",
+            content_sha256=site, archive_path=f"{site}.html.gz",
+        )
+        db.store_article_analysis(
+            row_id, title="Ista vest", body_text=body, published_at=None,
+            canonical_url=None, original_source_url=None, adapter_name="generic",
+        )
+    rows = db.connection.execute(
+        "SELECT id, duplicate_group_id, is_primary FROM urls ORDER BY id"
+    ).fetchall()
+    assert len(rows) == 2
+    assert rows[0]["duplicate_group_id"] == ids[0]
+    assert rows[1]["duplicate_group_id"] == ids[0]
+    results = db.public_search("Petrovaradin")
+    assert len(results) == 1
+    assert results[0]["duplicate_copies"] == 1
