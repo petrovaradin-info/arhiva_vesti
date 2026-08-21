@@ -15,6 +15,7 @@ IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "svg"}
 
 
 def decode_html(content: bytes | str) -> str:
+
     """Decode HTML deterministically without BeautifulSoup's noisy byte guessing."""
     if isinstance(content, str):
         return content

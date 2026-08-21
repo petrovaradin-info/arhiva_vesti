@@ -20,7 +20,8 @@ def test_docx_text_is_extracted_without_external_program():
     assert "Petrovaradin" in extract_text(output.getvalue(), "document", "plan.docx")
 
 
-def test_html_decode_handles_legacy_serbian_encoding_without_warning():
+def test_html_decode_handles_legacy_serbian_encoding():
+
     payload = "<p>Petrovaradin i železnička stanica</p>".encode("windows-1250")
     assert "železnička" in decode_html(payload)
     assert "Petrovaradin" in extract_text(payload, "html")

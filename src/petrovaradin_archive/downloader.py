@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import time
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -70,9 +71,22 @@ class Downloader:
         )}
         rows = self.db.pending(limit, site_id)
         total = len(rows)
+        run_started = time.monotonic()
+        print(
+            f"Download red spreman: {total} URL-ova"
+            + (f" za izvor [{site_id}]" if site_id else " iz svih izvora"),
+            flush=True,
+        )
+        if total == 0:
+            return counts
         for position, row in enumerate(rows, 1):
+            item_started = time.monotonic()
+            percent = position / total * 100
             print(
-                f"[{position}/{total}] [{row['site_id']}] otvaram URL #{row['id']}: {row['url']}",
+                f"[{position}/{total} | {percent:5.1f}%] "
+                f"[{row['site_id']}] URL #{row['id']}\n"
+                f"  {row['url']}",
+
                 flush=True,
             )
             try:
@@ -157,7 +171,11 @@ class Downloader:
                         final_url=final_url, content_type=content_type,
                     )
                     counts["no_keyword"] += 1
-                    print(f"  -> no_keyword ({strategy})", flush=True)
+                    print(
+                        f"  -> no_keyword ({strategy}, {time.monotonic()-item_started:.1f}s)",
+                        flush=True,
+                    )
+
                     continue
                 digest, archive_path, text_path = self._store_content(
                     content, final_url, content_type, kind
@@ -193,9 +211,15 @@ class Downloader:
                     )
                     self._queue_assets(row["id"], content, final_url, domains)
                 counts["archived"] += 1
-                saved_status = "awaiting_review" if source and source["manual_review"] else "archived"
+                source = self.db.source(row["site_id"])
+                saved_status = (
+                    "awaiting_review" if source and source["manual_review"] else "archived"
+                )
                 print(
-                    f"  -> {saved_status} ({strategy}, {kind}, {len(content)} B)", flush=True
+                    f"  -> {saved_status} ({strategy}, {kind}, {len(content)} B, "
+                    f"{time.monotonic()-item_started:.1f}s)",
+                    flush=True,
+
                 )
             except Exception as exc:
                 if isinstance(exc, PermissionError):
@@ -209,7 +233,16 @@ class Downloader:
                 self.db.mark_failed(row["id"], str(exc), retry, status)
                 result = "retry" if retry else "unavailable"
                 counts[result] += 1
-                print(f"  -> {result}: {exc}", flush=True)
+                print(
+                    f"  -> {result} ({time.monotonic()-item_started:.1f}s): {exc}",
+                    flush=True,
+                )
+        print(
+            f"Download red završen za {time.monotonic()-run_started:.1f}s: "
+            + "; ".join(f"{name}={count}" for name, count in counts.items()),
+            flush=True,
+        )
+
         return counts
 
     def _store_content(self, content: bytes, final_url: str, content_type: str,
