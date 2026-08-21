@@ -16,7 +16,7 @@ Requires-Dist: ruff>=0.5; extra == "dev"
 # Petrovaradin Info Archive
 
 Odvojen istorijski kolektor za pronalaženje i arhiviranje vesti o Petrovaradinu.
-Ne menja postojeći RSS kolektor `feed_ALL.py`.
+RSS/feed obrada pripada drugom projektu i nije deo ovog kolektora.
 
 ## Šta radi
 

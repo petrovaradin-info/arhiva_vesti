@@ -18,11 +18,12 @@ from .database import ArchiveDB
 from .downloader import Downloader
 from .http import PoliteClient
 from .importer import import_urls
-from .providers import RSSProvider, SitemapProvider
+from .providers import SitemapProvider
 from .providers.selenium_search import SeleniumInternalSearchProvider
 from .providers.google_site_search import GoogleSiteSearchProvider
 from .providers.sitemap_content import SitemapContentProvider
 from .providers.duckduckgo_site_search import DuckDuckGoSiteSearchProvider
+from .article_adapters import extract_article
 
 
 def project_root() -> Path:
@@ -86,8 +87,6 @@ def cmd_discover(args: argparse.Namespace) -> int:
         ))
     if "selenium" in args.provider:
         providers.append(SeleniumInternalSearchProvider(settings))
-    if "rss" in args.provider:
-        providers.append(RSSProvider(client, keywords))
     if "google" in args.provider:
         providers.append(GoogleSiteSearchProvider(settings))
     if "scan" in args.provider:
@@ -97,14 +96,32 @@ def cmd_discover(args: argparse.Namespace) -> int:
     added = seen = 0
     try:
         for site in choose_sites(sites, args.site, db):
+            if args.max_pages:
+                site = dict(site)
+                site["internal_search"] = dict(site.get("internal_search", {}))
+                site["internal_search"]["max_pages"] = args.max_pages
+                site["google_max_pages"] = args.max_pages
             for provider in providers:
                 print(f"[{site['id']}] discovery: {provider.name}", flush=True)
+                provider_seen = 0
                 try:
                     for item in provider.discover(site):
+                        provider_seen += 1
                         seen += 1
                         added += int(db.add(item))
                 except Exception as exc:
                     print(f"[{site['id']}] {provider.name} greška: {exc}", file=sys.stderr)
+                if (provider.name == "selenium_internal_search"
+                        and provider_seen == 0 and site.get("google_fallback")
+                        and "google" not in args.provider):
+                    fallback = GoogleSiteSearchProvider(settings)
+                    print(f"[{site['id']}] interna pretraga je prazna; fallback: google_site_search")
+                    try:
+                        for item in fallback.discover(site):
+                            seen += 1
+                            added += int(db.add(item))
+                    except Exception as exc:
+                        print(f"[{site['id']}] Google fallback nije uspeo: {exc}", file=sys.stderr)
     finally:
         db.close()
         client.close()
@@ -147,6 +164,56 @@ def cmd_download_assets(args: argparse.Namespace) -> int:
         db.close()
         client.close()
     print("; ".join(f"{name}={count}" for name, count in counts.items()))
+    return 0
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    root, settings, sites, db, client = context(args.config_dir)
+    analyzed = duplicates = failed = 0
+    try:
+        for row in db.unanalyzed_html_rows(args.limit, args.site):
+            try:
+                path = Path(row["archive_path"])
+                if path.suffix == ".gz":
+                    with gzip.open(path, "rb") as handle:
+                        content = handle.read()
+                else:
+                    content = path.read_bytes()
+                config = json.loads(row["config_json"] or "{}")
+                article = extract_article(
+                    content, row["final_url"] or row["url"], config.get("adapter", "generic")
+                )
+                group_id = db.store_article_analysis(
+                    row["id"], title=article.title, body_text=article.body_text,
+                    published_at=article.published_at,
+                    canonical_url=article.canonical_url,
+                    original_source_url=article.original_source_url,
+                    adapter_name=article.adapter_name,
+                )
+                analyzed += 1
+                duplicates += int(group_id != row["id"])
+            except Exception as exc:
+                failed += 1
+                print(f"#{row['id']} analiza nije uspela: {exc}", file=sys.stderr)
+    finally:
+        db.close()
+        client.close()
+    print(f"analizirano={analyzed}; povezano_kao_kopija={duplicates}; neuspešno={failed}")
+    return 0
+
+
+def cmd_duplicates(args: argparse.Namespace) -> int:
+    root, settings, sites, db, client = context(args.config_dir)
+    try:
+        rows = db.duplicate_groups(args.limit)
+    finally:
+        db.close()
+        client.close()
+    for row in rows:
+        print(f"grupa #{row['id']}: {row['copies']} primeraka [{row['sites']}]")
+        print(f"  {row['article_title'] or ''}")
+        print(f"  {row['url']}")
+    print(f"Grupa duplikata: {len(rows)}")
     return 0
 
 
@@ -323,7 +390,6 @@ def cmd_audit_sources(args: argparse.Namespace) -> int:
         if search.get("start_url"):
             targets.append(search["start_url"])
         targets.extend(site.get("sitemaps", []))
-        targets.extend(site.get("feeds", []))
         target = targets[0] if targets else f"https://{site['domains'][0]}/"
         insecure_hosts = {
             host.lower() for host in settings.get("request", {}).get("tls_insecure_hosts", [])
@@ -407,7 +473,8 @@ def cmd_search(args: argparse.Namespace) -> int:
         db.close()
         client.close()
     for row in rows:
-        print(f"#{row['id']} [{row['site_id']}] {row['title'] or ''}")
+        copies = f" (+{row['duplicate_copies']} kopija)" if row["duplicate_copies"] else ""
+        print(f"#{row['id']} [{row['site_id']}] {row['title'] or ''}{copies}")
         print(f"  {row['url']}")
     print(f"Rezultata dostupnih redovnim korisnicima: {len(rows)}")
     return 0
@@ -531,9 +598,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     discover = sub.add_parser("discover", help="Otkriva istorijske URL-ove")
     discover.add_argument("--provider", action="append",
-                          choices=["sitemap", "selenium", "rss", "google", "ddg", "scan"],
+                          choices=["sitemap", "selenium", "google", "ddg", "scan"],
                           required=True)
     discover.add_argument("--site", action="append", help="ID sajta; izostaviti za sve")
+    discover.add_argument(
+        "--max-pages", type=int,
+        help="Privremeni limit stranica po izvoru, koristan za probu adaptera",
+    )
     discover.set_defaults(func=cmd_discover)
 
     download = sub.add_parser("download", help="Preuzima pending HTML stranice")
@@ -552,6 +623,17 @@ def build_parser() -> argparse.ArgumentParser:
     download_assets.add_argument("--site")
     download_assets.add_argument("--kind", choices=["document", "image"])
     download_assets.set_defaults(func=cmd_download_assets)
+
+    analyze = sub.add_parser(
+        "analyze", help="Izvlači podatke iz sačuvanih članaka i grupiše prenete vesti"
+    )
+    analyze.add_argument("--limit", type=int, default=1000)
+    analyze.add_argument("--site")
+    analyze.set_defaults(func=cmd_analyze)
+
+    duplicates = sub.add_parser("duplicates", help="Prikazuje grupe prenetih/duplih vesti")
+    duplicates.add_argument("--limit", type=int, default=100)
+    duplicates.set_defaults(func=cmd_duplicates)
 
     importer = sub.add_parser("import", help="Uvozi URL kolonu iz CSV-a ili URL-ove iz TXT-a")
     importer.add_argument("path", type=Path)

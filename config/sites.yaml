@@ -1,24 +1,62 @@
 sites:
+  - id: "buka_6yka"
+    name: "BUKA / 6yka"
+    domains: ["6yka.com", "www.6yka.com"]
+    enabled: true
+    sitemaps: ["https://6yka.com/wp-sitemap.xml"]
+    adapter: wordpress
+    syndication_prone: true
+    internal_search:
+      enabled: true
+      engine: selenium
+      start_url: "https://6yka.com/?s=petrovaradin"
+      page_url_template: "https://6yka.com/page/{page}/?s=petrovaradin"
+      result_link_css: "article h2 a, article h3 a, .post-title a"
+      next_css: "a.next, a[rel='next']"
+      max_pages: 200
+      headless: false
+      user_data_dir: "data/browser_profiles/buka_6yka"
+      challenge_wait_seconds: 120
+
   - id: "sportski_zurnal"
     name: "Sportski žurnal"
     domains: ["zurnal.politika.rs"]
     enabled: true
-    feeds: ["https://zurnal.politika.rs/rss"]
-    rss_auto_discover: false
+    internal_search:
+      enabled: true
+      engine: selenium
+      start_url: "https://zurnal.politika.rs/search/index/keyword:petrovaradin/sort:date"
+      result_link_css: "article a[href], .search-results a[href], h2 a[href], h3 a[href]"
+      next_css: "a[rel='next'], a.next"
+      max_pages: 20
 
   - id: "in_medija"
     name: "IN Medija"
     domains: ["inmedija.rs", "www.inmedija.rs"]
     enabled: true
-    feeds: ["https://inmedija.rs/feed/"]
-    rss_auto_discover: false
+    adapter: wordpress
+    internal_search:
+      enabled: true
+      engine: selenium
+      start_url: "https://inmedija.rs/?s=petrovaradin"
+      page_url_template: "https://inmedija.rs/strana/{page}/?s=petrovaradin"
+      result_link_css: "a.articleLink[href]"
+      next_css: "a[rel='next'], a.next"
+      max_pages: 200
 
   - id: "masina"
     name: "Mašina"
     domains: ["masina.rs", "www.masina.rs"]
     enabled: true
-    feeds: ["https://www.masina.rs/feed/"]
-    rss_auto_discover: false
+    adapter: wordpress
+    internal_search:
+      enabled: true
+      engine: selenium
+      start_url: "https://www.masina.rs/pretraga/?_sf_s=petrovaradin"
+      result_link_css: ".cl-element-title__anchor[href]"
+      next_css: "a[rel='next'], a.next"
+      pagination_mode: infinite_scroll
+      max_pages: 200
 
   - id: "021"
     name: "021.rs"
@@ -53,6 +91,7 @@ sites:
     domains: ["beta.rs", "www.beta.rs"]
     enabled: true
     sitemaps: ["https://beta.rs/sitemap.xml"]
+    google_fallback: true
     internal_search: {enabled: true, engine: selenium, start_url: "https://beta.rs/search?query=petrovaradin", page_url_template: "https://beta.rs/search?query=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a.next, a[rel='next']", max_pages: 200}
 
   - id: "nova"
@@ -60,14 +99,14 @@ sites:
     domains: ["nova.rs"]
     enabled: true
     sitemaps: ["https://nova.rs/sitemap_index.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://nova.rs/search/?query=petrovaradin", page_url_template: "https://nova.rs/search/?query=petrovaradin&page={page}", result_link_css: "article a[href]", next_css: "a.next, a[rel='next']", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://nova.rs/search/?query=petrovaradin", page_url_template: "https://nova.rs/search/?query=petrovaradin&page={page}", result_link_css: "article > div > a[href]", next_css: "a.next, a[rel='next']", max_pages: 200}
 
   - id: "n1info"
     name: "N1 Info"
     domains: ["n1info.rs"]
     enabled: true
     sitemaps: ["https://n1info.rs/sitemap_index.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://n1info.rs/search/?query=petrovaradin", page_url_template: "https://n1info.rs/search/?query=petrovaradin&page={page}", result_link_css: "article a[href]", next_css: "a.next, a[rel='next']", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://n1info.rs/search/?query=petrovaradin", page_url_template: "https://n1info.rs/search/?query=petrovaradin&page={page}", result_link_css: "article h3 a[href]", next_css: "a.next, a[rel='next']", max_pages: 200}
 
   - id: "danas"
     name: "Danas"
@@ -130,7 +169,7 @@ sites:
     domains: ["nsfudbal.com"]
     enabled: true
     sitemaps: ["https://nsfudbal.com/sitemap_index.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://nsfudbal.com/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a.next, a[rel='next']", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://nsfudbal.com/?s=petrovaradin", page_url_template: "https://nsfudbal.com/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a.next, a[rel='next']", max_pages: 200}
 
   - id: "srbijasport"
     name: "Srbija Sport"
@@ -150,6 +189,8 @@ sites:
     name: "Razglas News"
     domains: ["razglas-news.com", "www.razglas-news.com"]
     enabled: true
+    adapter: wordpress
+    syndication_prone: true
     sitemaps: ["https://razglas-news.com/sitemap_index.xml"]
     internal_search:
       enabled: true
@@ -169,7 +210,8 @@ sites:
       enabled: true
       engine: selenium
       start_url: "https://mondo.rs/search/1/1?q=petrovaradin"
-      result_link_css: "article a[href], .search-results a[href]"
+      page_url_template: "https://mondo.rs/search/1/1?q=petrovaradin&page={page}"
+      result_link_css: "a.card-link[href]"
       next_css: "a.next, a[rel='next']"
       max_pages: 200
 
@@ -177,7 +219,7 @@ sites:
     name: "Radio Slobodna Evropa"
     domains: ["slobodnaevropa.org", "www.slobodnaevropa.org"]
     enabled: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.slobodnaevropa.org/s?k=petrovaradin", result_link_css: "article a[href], .media-block a[href], .search-result a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.slobodnaevropa.org/s?k=petrovaradin&tab=any-content&r=any&pp=10&ordering=newest", page_url_template: "https://www.slobodnaevropa.org/s?k=petrovaradin&tab=any-content&pi={page}&r=any&pp=10&ordering=newest", result_link_css: "article a[href], .media-block a[href], .search-result a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "sremske_novine"
     name: "Sremske novine"
@@ -189,12 +231,13 @@ sites:
     name: "Koreni"
     domains: ["koreni.rs", "www.koreni.rs"]
     enabled: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.koreni.rs/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.koreni.rs/?s=petrovaradin", page_url_template: "https://www.koreni.rs/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "national_geographic"
     name: "National Geographic"
     domains: ["nationalgeographic.com", "www.nationalgeographic.com"]
     enabled: true
+    google_fallback: true
     internal_search: {enabled: true, engine: selenium, start_url: "https://www.nationalgeographic.com/search?q=petrovaradin&location=srp&type=manual", result_link_css: "a[href*='/article/'], article a[href], .search-result a[href]", next_css: "a[rel='next'], button[aria-label*='Next']", max_pages: 100}
 
   - id: "kurir"
@@ -202,14 +245,14 @@ sites:
     domains: ["kurir.rs", "www.kurir.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.kurir.rs/search/1/1?q=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.kurir.rs/search/1/1?q=petrovaradin", page_url_template: "https://www.kurir.rs/search/1/1?q=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "telegraf"
     name: "Telegraf"
     domains: ["telegraf.rs", "www.telegraf.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.telegraf.rs/pretraga/?q=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.telegraf.rs/pretraga/?q=petrovaradin", page_url_template: "https://www.telegraf.rs/pretraga/page/{page}?q=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "informer"
     name: "Informer"
@@ -230,91 +273,91 @@ sites:
     domains: ["rts.rs", "www.rts.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.rts.rs/pretraga.html?lang=sr&searchText=petrovaradin", result_link_css: "article a[href], .search-result a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.rts.rs/pretraga.html?searchText=petrovaradin&lang=sr&position=1", page_url_template: "https://www.rts.rs/pretraga.html?searchText=petrovaradin&lang=sr&position={page}", result_link_css: "article a[href], .search-result a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "srbijadanas"
     name: "Srbija Danas"
     domains: ["sd.rs", "www.sd.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.sd.rs/pretraga/petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.sd.rs/pretraga/petrovaradin?page=1", page_url_template: "https://www.sd.rs/pretraga/petrovaradin?page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "sputnik"
     name: "Sputnik Srbija"
     domains: ["sputnikportal.rs", "www.sputnikportal.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://sputnikportal.rs/search/?query=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://sputnikportal.rs/search/?query=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "button[class*='more'], .list-more button, button[data-role='load-more']", max_pages: 200}
 
   - id: "b92"
     name: "B92"
     domains: ["b92.net", "www.b92.net"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.b92.net/najnovije-vesti?search=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.b92.net/najnovije-vesti?search=petrovaradin", page_url_template: "https://www.b92.net/najnovije-vesti?search=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", trust_search_results: false, max_pages: 200}
 
   - id: "vesti_online"
     name: "Vesti Online"
     domains: ["vesti-online.com", "www.vesti-online.com"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://vesti-online.com/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://vesti-online.com/?s=petrovaradin", page_url_template: "https://vesti-online.com/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "republika"
     name: "Republika"
     domains: ["republika.rs", "www.republika.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page=1", page_url_template: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "politika"
     name: "Politika"
     domains: ["politika.rs", "www.politika.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.politika.rs/search/index/keyword:petrovaradin/sort:date", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.politika.rs/search/index/keyword:petrovaradin/sort:date", page_url_template: "https://www.politika.rs/search/index/keyword:petrovaradin/sort:date/page:{page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "novosti"
     name: "Večernje novosti"
     domains: ["novosti.rs", "www.novosti.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.novosti.rs/pretraga?query=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.novosti.rs/pretraga?query=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "button[class*='more'], .load-more button, button[data-page]", max_pages: 200}
 
   - id: "dnevnik"
     name: "Dnevnik"
     domains: ["dnevnik.rs", "www.dnevnik.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.dnevnik.rs/pretraga/petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.dnevnik.rs/pretraga/petrovaradin?page=1", page_url_template: "https://www.dnevnik.rs/pretraga/petrovaradin?page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "tanjug"
     name: "Tanjug"
     domains: ["tanjug.rs", "www.tanjug.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.tanjug.rs/search?query=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.tanjug.rs/search?query=petrovaradin&page=1", page_url_template: "https://www.tanjug.rs/search?query=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "ozon"
     name: "Ozon"
     domains: ["ozon.rs", "www.ozon.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.ozon.rs/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.ozon.rs/?s=petrovaradin", page_url_template: "https://www.ozon.rs/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "direktno"
     name: "Direktno"
     domains: ["direktno.rs", "www.direktno.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://direktno.rs/search.html?lang=sr&searchText=petrovaradin&ok=", result_link_css: "article a[href], .search-result a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://direktno.rs/search.html?searchText=petrovaradin&lang=sr&position=1", page_url_template: "https://direktno.rs/search.html?searchText=petrovaradin&lang=sr&position={page}", result_link_css: "article a[href], .search-result a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "juzne_vesti"
     name: "Južne vesti"
     domains: ["juznevesti.com", "www.juznevesti.com"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.juznevesti.com/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.juznevesti.com/?s=petrovaradin", page_url_template: "https://www.juznevesti.com/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "krug"
     name: "Krug"
@@ -328,7 +371,7 @@ sites:
     domains: ["rt.rs", "lat.rt.rs"]
     enabled: true
     manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://lat.rt.rs/search?q=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://lat.rt.rs/search?q=petrovaradin", result_link_css: "article a[href], .search-results a[href]", next_css: "button[class*='more'], .load-more button, button[data-role='load-more']", max_pages: 200}
 
   - id: "rtv"
     name: "Radio-televizija Vojvodine"
@@ -340,7 +383,7 @@ sites:
     name: "Moj Novi Sad"
     domains: ["mojnovisad.com", "www.mojnovisad.com"]
     enabled: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.mojnovisad.com/tag/petrovaradin/", page_url_template: "https://www.mojnovisad.com/tag/petrovaradin/page/{page}/", result_link_css: "article a[href], h2 a[href], h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.mojnovisad.com/tag/petrovaradin/", page_url_template: "https://www.mojnovisad.com/tag/petrovaradin/?paged={page}", result_link_css: "article a[href], h2 a[href], h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "autonomija"
     name: "Autonomija"
@@ -376,7 +419,9 @@ sites:
     enabled: true
     manual_review: true
     public_enabled: false
-    internal_search: {enabled: true, engine: selenium, start_url: "https://vojvodjanski.com/?s=petrovaradin", page_url_template: "https://vojvodjanski.com/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
+    adapter: wordpress
+    syndication_prone: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://vojvodjanski.com/vojvodjanski/pretraga?search=petrovaradin", result_link_css: "article a[href], .search-results a[href], h2 a[href], h3 a[href]", next_css: "button[class*='more'], .load-more button", pagination_mode: infinite_scroll, max_pages: 200}
 
   # Zvanični gradski, pokrajinski i javni izvori
   - id: "grad_novi_sad"
@@ -384,7 +429,7 @@ sites:
     domains: ["novisad.rs", "www.novisad.rs"]
     enabled: true
     sitemaps: ["https://novisad.rs/sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://novisad.rs/lat/search/node?keys=petrovaradin", result_link_css: "main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], .pager-next a", max_pages: 300}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://novisad.rs/lat/search/node?page=0&keys=petrovaradin", page_url_template: "https://novisad.rs/lat/search/node?page={page}&keys=petrovaradin", page_template_offset: 0, result_link_css: "main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], .pager-next a", max_pages: 300}
 
   - id: "skupstina_ns"
     name: "Skupština Grada Novog Sada"
@@ -398,26 +443,27 @@ sites:
     domains: ["nsurbanizam.rs", "www.nsurbanizam.rs"]
     enabled: true
     sitemaps: ["https://nsurbanizam.rs/sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://nsurbanizam.rs/search/node?keys=petrovaradin", result_link_css: "main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], .pager-next a", max_pages: 300}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://nsurbanizam.rs/search/node/petrovaradin", page_url_template: "https://nsurbanizam.rs/search/node/petrovaradin?page={page}", result_link_css: "main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], .pager-next a", max_pages: 300}
 
   - id: "ugzins"
     name: "Gradska uprava za građevinsko zemljište i investicije"
     domains: ["ugzins.rs", "www.ugzins.rs"]
     enabled: true
     sitemaps: ["https://www.ugzins.rs/sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.ugzins.rs/search/node?keys=petrovaradin", result_link_css: "main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], .pager-next a", max_pages: 300}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.ugzins.rs/sr/search/node?keys=petrovaradin&page=0", page_url_template: "https://www.ugzins.rs/sr/search/node?keys=petrovaradin&page={page}", page_template_offset: 0, result_link_css: "main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], .pager-next a", max_pages: 300}
 
   - id: "vojvodina_gov"
     name: "Pokrajinska vlada AP Vojvodine"
     domains: ["vojvodina.gov.rs", "www.vojvodina.gov.rs"]
     enabled: true
     sitemaps: ["https://www.vojvodina.gov.rs/sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.vojvodina.gov.rs/?s=petrovaradin", result_link_css: "main article a[href], .search-results a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 300}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.vojvodina.gov.rs/pretraga?s=petrovaradin", result_link_css: "main article a[href], .search-results a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 300}
 
   - id: "jgsp_ns"
     name: "JGSP Novi Sad"
     domains: ["gspns.co.rs", "www.gspns.co.rs"]
     enabled: true
+    google_fallback: true
     sitemaps: ["https://www.gspns.co.rs/sitemap.xml"]
     internal_search: {enabled: true, engine: selenium, start_url: "https://www.gspns.co.rs/?s=petrovaradin", result_link_css: "main a[href], article a[href]", next_css: "a[rel='next'], a.next", max_pages: 100}
 
@@ -435,31 +481,38 @@ sites:
     sitemaps: ["https://jkpput.rs/sitemap.xml"]
     internal_search: {enabled: true, engine: selenium, start_url: "https://jkpput.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
+  - id: "backaput"
+    name: "Bačkaput"
+    domains: ["backaput.co.rs", "www.backaput.co.rs"]
+    enabled: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.backaput.co.rs/index.php/component/search/?searchword=Petrovaradin&searchphrase=all&Itemid=437", result_link_css: "main a[href], .search-results a[href], .result-title a[href]", next_css: "a[rel='next'], .pagination-next a", max_pages: 100}
+
   - id: "parking_ns"
     name: "JKP Parking servis Novi Sad"
     domains: ["parkingns.rs", "www.parkingns.rs"]
     enabled: true
     sitemaps: ["https://parkingns.rs/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://parkingns.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://parkingns.rs/search/petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "cistoca_ns"
     name: "JKP Čistoća Novi Sad"
     domains: ["cistocans.rs", "www.cistocans.rs", "cistocans.co.rs", "www.cistocans.co.rs"]
     enabled: true
     sitemaps: ["https://www.cistocans.rs/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.cistocans.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.cistocans.rs/?s=petrovaradin", page_url_template: "https://www.cistocans.rs/page/{page}/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "zelenilo_ns"
     name: "JKP Gradsko zelenilo Novi Sad"
     domains: ["zelenilo.com", "www.zelenilo.com"]
     enabled: true
     sitemaps: ["https://zelenilo.com/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://zelenilo.com/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://zelenilo.com/?s=petrovaradin", page_url_template: "https://zelenilo.com/page/{page}/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "nsinfo"
     name: "JKP Informatika Novi Sad"
     domains: ["nsinfo.co.rs", "www.nsinfo.co.rs", "gusp.nsinfo.co.rs"]
     enabled: true
+    google_fallback: true
     sitemaps: ["https://www.nsinfo.co.rs/sitemap.xml"]
     internal_search: {enabled: true, engine: selenium, start_url: "https://www.nsinfo.co.rs/lat/search/node?keys=petrovaradin", result_link_css: "main h2 a[href], main h3 a[href], .search-results a[href]", next_css: "a[rel='next'], .pager-next a", max_pages: 200}
 
@@ -468,39 +521,40 @@ sites:
     domains: ["nstoplana.rs", "www.nstoplana.rs"]
     enabled: true
     sitemaps: ["https://www.nstoplana.rs/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.nstoplana.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://nstoplana.rs/?s=petrovaradin&ct_post_type=post%3Apage", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "visit_novi_sad"
     name: "Turistička organizacija Grada Novog Sada"
     domains: ["novisad.travel", "www.novisad.travel"]
     enabled: true
     sitemaps: ["https://novisad.travel/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://novisad.travel/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://novisad.travel/?s=petrovaradin", page_url_template: "https://novisad.travel/page/{page}/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "muzej_grada_ns"
     name: "Muzej Grada Novog Sada"
     domains: ["museumns.rs", "www.museumns.rs"]
     enabled: true
     sitemaps: ["https://museumns.rs/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://museumns.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://museumns.rs/?s=petrovaradin", page_url_template: "https://museumns.rs/page/{page}/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "zzzskgns"
     name: "Zavod za zaštitu spomenika kulture Grada Novog Sada"
     domains: ["zzzskgns.rs", "www.zzzskgns.rs"]
     enabled: true
     sitemaps: ["https://www.zzzskgns.rs/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.zzzskgns.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.zzzskgns.rs/?s=petrovaradin", page_url_template: "https://www.zzzskgns.rs/page/{page}/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "atelje61"
     name: "Atelje 61"
     domains: ["atelje61.org.rs", "www.atelje61.org.rs"]
     enabled: true
     sitemaps: ["https://atelje61.org.rs/wp-sitemap.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://atelje61.org.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+    internal_search: {enabled: true, engine: selenium, start_url: "https://atelje61.org.rs/?s=petrovaradin", page_url_template: "https://atelje61.org.rs/page/{page}/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "kulturne_stanice"
     name: "Kulturne stanice Novi Sad"
     domains: ["kulturnestanice.rs", "www.kulturnestanice.rs"]
     enabled: true
+    google_fallback: true
     sitemaps: ["https://kulturnestanice.rs/wp-sitemap.xml"]
     internal_search: {enabled: true, engine: selenium, start_url: "https://kulturnestanice.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}

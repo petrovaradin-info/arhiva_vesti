@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
+import re
 from collections.abc import Iterator
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException
@@ -21,41 +22,92 @@ class SeleniumInternalSearchProvider:
         self.settings = settings.get("selenium", {})
         self.keywords = settings.get("keywords", ["Petrovaradin", "Петроварадин"])
 
-    def _driver(self):
+    def _driver(self, config: dict):
         browser = self.settings.get("browser", "chrome").lower()
         if browser == "firefox":
             options = webdriver.FirefoxOptions()
-            if self.settings.get("headless", True):
+            if config.get("headless", self.settings.get("headless", True)):
                 options.add_argument("-headless")
             driver = webdriver.Firefox(options=options)
             driver.set_page_load_timeout(int(self.settings.get("page_load_timeout_seconds", 30)))
             return driver
         options = webdriver.ChromeOptions()
-        if self.settings.get("headless", True):
+        if config.get("headless", self.settings.get("headless", True)):
             options.add_argument("--headless=new")
         options.add_argument("--disable-gpu")
         options.add_argument("--ignore-certificate-errors")
         options.add_argument("--window-size=1440,1200")
+        if config.get("user_data_dir"):
+            options.add_argument(f"--user-data-dir={config['user_data_dir']}")
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(int(self.settings.get("page_load_timeout_seconds", 30)))
         return driver
+
+    @staticmethod
+    def _replace_search_term(url: str, keyword: str) -> str:
+        markers = (
+            "petrovaradin",
+            quote("Петроварадин", safe=""),
+            quote("петроварадин", safe=""),
+        )
+        result = url
+        for marker in markers:
+            replacement = quote(keyword, safe="")
+            result = re.sub(re.escape(marker), replacement, result, flags=re.IGNORECASE)
+        return result
+
+    def _search_variants(self, config: dict) -> list[tuple[str, dict]]:
+        configured = config.get("start_urls", [config["start_url"]])
+        variants: list[tuple[str, dict]] = []
+        seen: set[str] = set()
+        for start_url in configured:
+            has_term = "petrovaradin" in start_url.casefold() or "%d0%bf%d0%b5%d1%82" in start_url.casefold()
+            keywords = self.keywords if config.get("search_both_scripts", True) and has_term else [None]
+            for keyword in keywords:
+                variant = dict(config)
+                url = self._replace_search_term(start_url, keyword) if keyword else start_url
+                if variant.get("page_url_template") and keyword:
+                    variant["page_url_template"] = self._replace_search_term(
+                        variant["page_url_template"], keyword
+                    )
+                if url not in seen:
+                    seen.add(url)
+                    variants.append((url, variant))
+        return variants
 
     def discover(self, site: dict) -> Iterator[DiscoveredURL]:
         config = site.get("internal_search", {})
         if not config.get("enabled"):
             return
-        driver = self._driver()
+        driver = self._driver(config)
         seen_pages: set[tuple[str, ...]] = set()
         seen_urls: set[str] = set()
         try:
-            start_urls = config.get("start_urls", [config["start_url"]])
-            for start_url in start_urls:
+            for start_url, variant_config in self._search_variants(config):
                 try:
                     driver.get(start_url)
                 except WebDriverException as exc:
                     print(f"  [{site['id']}] početna strana nije učitana: {exc.msg}", flush=True)
                     continue
-                yield from self._walk_pages(driver, site, config, start_url, seen_pages, seen_urls)
+                challenge_wait = int(variant_config.get("challenge_wait_seconds", 0))
+                if challenge_wait and not driver.find_elements(
+                    By.CSS_SELECTOR, variant_config["result_link_css"]
+                ):
+                    print(
+                        f"  [{site['id']}] čeka se ručna provera u browseru ({challenge_wait}s)",
+                        flush=True,
+                    )
+                    try:
+                        WebDriverWait(driver, challenge_wait).until(
+                            lambda current: bool(current.find_elements(
+                                By.CSS_SELECTOR, variant_config["result_link_css"]
+                            ))
+                        )
+                    except TimeoutException:
+                        pass
+                yield from self._walk_pages(
+                    driver, site, variant_config, start_url, seen_pages, seen_urls
+                )
         finally:
             driver.quit()
 
@@ -98,6 +150,7 @@ class SeleniumInternalSearchProvider:
                 relevant_on_page = 0
                 for href, anchor_text, title, context_text in result_records:
                     searchable = " ".join((href, anchor_text, title or "", context_text))
+                    trusted_search = config.get("trust_search_results", True)
                     canonical_href = canonicalize_url(href)
                     blocked = any(href.startswith(prefix) for prefix in site.get("blocklist", []))
                     non_article = is_non_article_url(href, site.get("exclude_url_patterns", []))
@@ -105,7 +158,7 @@ class SeleniumInternalSearchProvider:
                         href
                         and canonical_href not in seen_urls
                         and host_matches(href, site["domains"])
-                        and contains_keyword(searchable, self.keywords)
+                        and (trusted_search or contains_keyword(searchable, self.keywords))
                         and not blocked
                         and not non_article
                     ):
@@ -119,14 +172,30 @@ class SeleniumInternalSearchProvider:
                                 "search_result_text": context_text,
                                 "search_page_url": driver.current_url,
                                 "search_page_number": page_number,
+                                "trusted_internal_search": trusted_search,
                             },
                         )
-                if relevant_on_page == 0:
-                    print(f"  [{site['id']}] nema novih relevantnih rezultata; kraj", flush=True)
+                if not hrefs:
+                    print(f"  [{site['id']}] nema rezultata; kraj", flush=True)
                     break
+                if config.get("pagination_mode") == "infinite_scroll":
+                    old_count = len(hrefs)
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
+                    try:
+                        WebDriverWait(
+                            driver, int(self.settings.get("timeout_seconds", 20))
+                        ).until(
+                            lambda current: len(current.find_elements(
+                                By.CSS_SELECTOR, config["result_link_css"]
+                            )) > old_count
+                        )
+                    except TimeoutException:
+                        break
+                    continue
                 if config.get("page_url_template"):
                     try:
-                        driver.get(config["page_url_template"].format(page=page_number + 1))
+                        next_page = page_number + int(config.get("page_template_offset", 1))
+                        driver.get(config["page_url_template"].format(page=next_page))
                     except WebDriverException:
                         break
                     continue
