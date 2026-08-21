@@ -24,6 +24,7 @@ from .providers.google_site_search import GoogleSiteSearchProvider
 from .providers.sitemap_content import SitemapContentProvider
 from .providers.duckduckgo_site_search import DuckDuckGoSiteSearchProvider
 from .article_adapters import extract_article
+from .special import PretrazivaDiscoverer, SpecialDownloader, SpecialRepository
 
 
 def project_root() -> Path:
@@ -164,6 +165,71 @@ def cmd_download_assets(args: argparse.Namespace) -> int:
         db.close()
         client.close()
     print("; ".join(f"{name}={count}" for name, count in counts.items()))
+    return 0
+
+
+def cmd_special_discover(args: argparse.Namespace) -> int:
+    root, settings, sites, db, client = context(args.config_dir)
+    repository = SpecialRepository(db.connection)
+    try:
+        result = PretrazivaDiscoverer(
+            repository, client, resolve_path(root, settings["data_dir"]) / "special" / "discovery"
+        ).run(args.max_pages)
+        stats = repository.stats()
+    finally:
+        db.close()
+        client.close()
+    print(
+        f"sesija={result['session_id']}; pronađeno={result['found']}; "
+        f"novo={result['new']}; jedinstveno_ukupno={stats['records']}; "
+        f"preklapanje_pisama={stats['script_overlap']}"
+    )
+    return 0
+
+
+def cmd_special_download(args: argparse.Namespace) -> int:
+    root, settings, sites, db, client = context(args.config_dir)
+    repository = SpecialRepository(db.connection)
+    downloader = SpecialDownloader(
+        repository, client, resolve_path(root, settings["data_dir"]) / "special" / "content",
+        settings.get("keywords", ["Petrovaradin", "Петроварадин"]),
+        settings.get("request", {}), settings.get("archive", {}), settings.get("selenium", {}),
+    )
+    try:
+        counts = downloader.run(args.limit, args.mode)
+    finally:
+        downloader.close()
+        db.close()
+        client.close()
+    print("; ".join(f"{key}={value}" for key, value in counts.items()))
+    return 0
+
+
+def cmd_special_stats(args: argparse.Namespace) -> int:
+    root, settings, sites, db, client = context(args.config_dir)
+    try:
+        stats = SpecialRepository(db.connection).stats()
+    finally:
+        db.close()
+        client.close()
+    print(json.dumps(stats, ensure_ascii=False, indent=2) if args.json else "; ".join(
+        f"{key}={value}" for key, value in stats.items()
+    ))
+    return 0
+
+
+def cmd_special_list(args: argparse.Namespace) -> int:
+    root, settings, sites, db, client = context(args.config_dir)
+    try:
+        rows = SpecialRepository(db.connection).list_records(args.limit, args.status, args.query)
+    finally:
+        db.close()
+        client.close()
+    for row in rows:
+        print(f"#{row['id']} [{row['content_type']}] {row['download_status'] or '-'} {row['title']}")
+        if row["url"]:
+            print(f"  {row['url']}")
+    print(f"Prikazano specijalnih zapisa: {len(rows)}")
     return 0
 
 
@@ -623,6 +689,32 @@ def build_parser() -> argparse.ArgumentParser:
     download_assets.add_argument("--site")
     download_assets.add_argument("--kind", choices=["document", "image"])
     download_assets.set_defaults(func=cmd_download_assets)
+
+    special_discover = sub.add_parser(
+        "special-discover", help="Odvojeno otkriva zapise iz specijalizovanih baza"
+    )
+    special_discover.add_argument("--max-pages", type=int, default=2)
+    special_discover.set_defaults(func=cmd_special_discover)
+
+    special_download = sub.add_parser(
+        "special-download", help="Nastavlja preuzimanje specijalizovanih zapisa"
+    )
+    special_download.add_argument("--limit", type=int, default=100)
+    special_download.add_argument("--mode", choices=["http", "selenium", "hybrid"], default="hybrid")
+    special_download.set_defaults(func=cmd_special_download)
+
+    special_stats = sub.add_parser("special-stats", help="Statistika specijalizovanog podsistema")
+    special_stats.add_argument("--json", action="store_true")
+    special_stats.set_defaults(func=cmd_special_stats)
+
+    special_list = sub.add_parser("special-list", help="Lista i pretraga specijalizovanih zapisa")
+    special_list.add_argument("--status", choices=sorted({
+        "pending", "archived", "no_keyword", "retry", "unavailable", "blocked",
+        "manual_capture_needed",
+    }))
+    special_list.add_argument("--query")
+    special_list.add_argument("--limit", type=int, default=20)
+    special_list.set_defaults(func=cmd_special_list)
 
     analyze = sub.add_parser(
         "analyze", help="Izvlači podatke iz sačuvanih članaka i grupiše prenete vesti"
