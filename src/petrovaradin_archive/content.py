@@ -14,6 +14,18 @@ DOCUMENT_EXTENSIONS = {"pdf", "doc", "docx", "odt", "rtf", "txt", "csv", "xls", 
 IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "svg"}
 
 
+def decode_html(content: bytes | str) -> str:
+    """Decode HTML without BeautifulSoup emitting byte-decoding warnings."""
+    if isinstance(content, str):
+        return content
+    for encoding in ("utf-8", "windows-1250", "windows-1251"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
 def url_extension(url: str) -> str:
     return Path(urlsplit(url).path).suffix.lower().lstrip(".")
 
@@ -41,7 +53,7 @@ def content_kind(url: str, content_type: str = "") -> str:
 def extract_text(content: bytes, kind: str, url: str = "") -> str:
     extension = url_extension(url)
     if kind == "html":
-        return BeautifulSoup(content, "html.parser").get_text(" ", strip=True)
+        return BeautifulSoup(decode_html(content), "html.parser").get_text(" ", strip=True)
     if kind == "pdf":
         try:
             from pypdf import PdfReader

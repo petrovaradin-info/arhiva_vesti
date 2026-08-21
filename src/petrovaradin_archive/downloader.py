@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import time
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -11,7 +12,7 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 
 from .database import ArchiveDB
-from .content import content_kind, extract_text, safe_extension, url_extension
+from .content import content_kind, decode_html, extract_text, safe_extension, url_extension
 from .http import PoliteClient
 from .urltools import host_matches
 
@@ -67,7 +68,25 @@ class Downloader:
             "archived", "no_keyword", "manual_capture_needed", "bad_redirect",
             "retry", "unavailable"
         )}
-        for row in self.db.pending(limit, site_id):
+        rows = self.db.pending(limit, site_id)
+        total = len(rows)
+        run_started = time.monotonic()
+        print(
+            f"Download red spreman: {total} URL-ova"
+            + (f" za izvor [{site_id}]" if site_id else " iz svih izvora"),
+            flush=True,
+        )
+        if total == 0:
+            return counts
+        for position, row in enumerate(rows, 1):
+            item_started = time.monotonic()
+            percent = position / total * 100
+            print(
+                f"[{position}/{total} | {percent:5.1f}%] "
+                f"[{row['site_id']}] URL #{row['id']}\n"
+                f"  {row['url']}",
+                flush=True,
+            )
             try:
                 if not self.client.allowed(row["url"]):
                     raise PermissionError("Blocked by robots.txt")
@@ -129,6 +148,7 @@ class Downloader:
                 if domains and not host_matches(final_url, domains):
                     self.db.mark_bad_redirect(row["id"], final_url)
                     counts["bad_redirect"] += 1
+                    print(f"  -> bad_redirect: {final_url}", flush=True)
                     continue
                 discovery_context = " ".join((
                     row["url"], row["query"] or "", row["metadata_json"] or ""
@@ -149,6 +169,10 @@ class Downloader:
                         final_url=final_url, content_type=content_type,
                     )
                     counts["no_keyword"] += 1
+                    print(
+                        f"  -> no_keyword ({strategy}, {time.monotonic()-item_started:.1f}s)",
+                        flush=True,
+                    )
                     continue
                 digest, archive_path, text_path = self._store_content(
                     content, final_url, content_type, kind
@@ -173,16 +197,36 @@ class Downloader:
                 if kind == "html":
                     self._queue_assets(row["id"], content, final_url, domains)
                 counts["archived"] += 1
+                source = self.db.source(row["site_id"])
+                saved_status = (
+                    "awaiting_review" if source and source["manual_review"] else "archived"
+                )
+                print(
+                    f"  -> {saved_status} ({strategy}, {kind}, {len(content)} B, "
+                    f"{time.monotonic()-item_started:.1f}s)",
+                    flush=True,
+                )
             except Exception as exc:
                 if isinstance(exc, PermissionError):
                     self.db.mark_blocked(row["id"], str(exc))
                     counts["manual_capture_needed"] += 1
+                    print(f"  -> manual_capture_needed: {exc}", flush=True)
                     continue
                 status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
                 permanent = status in {404, 410}
                 retry = row["attempts"] + 1 < self.max_retries and not permanent
                 self.db.mark_failed(row["id"], str(exc), retry, status)
-                counts["retry" if retry else "unavailable"] += 1
+                result = "retry" if retry else "unavailable"
+                counts[result] += 1
+                print(
+                    f"  -> {result} ({time.monotonic()-item_started:.1f}s): {exc}",
+                    flush=True,
+                )
+        print(
+            f"Download red završen za {time.monotonic()-run_started:.1f}s: "
+            + "; ".join(f"{name}={count}" for name, count in counts.items()),
+            flush=True,
+        )
         return counts
 
     def _store_content(self, content: bytes, final_url: str, content_type: str,
@@ -218,7 +262,7 @@ class Downloader:
         return digest, str(archive_path), text_path
 
     def _asset_candidates(self, content: bytes, base_url: str) -> list[tuple[str, str]]:
-        soup = BeautifulSoup(content, "html.parser")
+        soup = BeautifulSoup(decode_html(content), "html.parser")
         candidates: list[tuple[str, str]] = []
         if self.archive_settings.get("save_linked_documents", True):
             document_extensions = set(self.archive_settings.get(
