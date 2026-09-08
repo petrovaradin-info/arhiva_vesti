@@ -62,6 +62,14 @@ sites:
     name: "021.rs"
     domains: ["021.rs", "www.021.rs"]
     enabled: true
+    # Generički adapter hvata prvi <article> na strani, a to je "najnovije vesti" teaser
+    # widget (ima ih 50+ po strani), ne sam tekst priče. Stvarni sadržaj je u div.story.
+    body_selector: "div.story"
+    # div.storyBody sadrži ugnježdene widgete koji nisu sam tekst priče: "još iz
+    # kategorije" (.moreCategory), oglas (.articleCopyright), komentare čitalaca
+    # (.commentsBlock), "najčitanije" (.storyInlineArticles), "dodaj kao izvor" dugme
+    # (.bottomShare) i listu tagova na dnu (.tags).
+    strip_selectors: [".moreCategory", ".articleCopyright", ".commentsBlock", ".storyInlineArticles", ".bottomShare", ".tags"]
     sitemaps:
       - "https://www.021.rs/sitemap.xml"
     internal_search:

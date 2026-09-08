@@ -141,6 +141,8 @@ class ArchiveDB:
             "simhash": "TEXT",
             "duplicate_group_id": "INTEGER",
             "is_primary": "INTEGER NOT NULL DEFAULT 1",
+            "lokacija": "TEXT",
+            "image_url": "TEXT",
         }
         for name, sql_type in additions.items():
             if name not in columns:
@@ -342,7 +344,8 @@ class ArchiveDB:
 
     def store_article_analysis(self, row_id: int, *, title: str | None, body_text: str,
                                published_at: str | None, canonical_url: str | None,
-                               original_source_url: str | None, adapter_name: str) -> int:
+                               original_source_url: str | None, adapter_name: str,
+                               image_url: str | None = None) -> int:
         fingerprint = content_fingerprint(body_text)
         article_simhash = simhash(body_text)
         row = self.connection.execute(
@@ -373,10 +376,10 @@ class ArchiveDB:
         self.connection.execute(
             """UPDATE urls SET article_title=?, article_text=?, published_at=?,
                canonical_from_page=?, original_source_url=?, adapter_name=?,
-               content_fingerprint=?, simhash=?, duplicate_group_id=?, is_primary=?
+               content_fingerprint=?, simhash=?, duplicate_group_id=?, is_primary=?, image_url=?
                WHERE id=?""",
             (title, body_text, published_at, canonical_url, original_source_url, adapter_name,
-             fingerprint, article_simhash, primary_id, int(primary_id == row_id), row_id),
+             fingerprint, article_simhash, primary_id, int(primary_id == row_id), image_url, row_id),
         )
         if primary_id != row_id:
             self.connection.execute(
@@ -400,6 +403,42 @@ class ArchiveDB:
                AND u.article_text IS NULL""" + site_filter + " ORDER BY u.id LIMIT ?",
             parameters,
         ))
+
+    def rows_for_recategorize(self, limit: int, site_id: str | None = None) -> list[sqlite3.Row]:
+        """Rows with extracted article text, regardless of whether lokacija was set before —
+        lets a changed candidate_keywords list be reapplied without re-downloading."""
+        parameters: list[object] = []
+        site_filter = ""
+        if site_id:
+            site_filter = " AND site_id=?"
+            parameters.append(site_id)
+        parameters.append(limit)
+        return list(self.connection.execute(
+            """SELECT id, article_title, article_text FROM urls
+               WHERE article_text IS NOT NULL""" + site_filter + " ORDER BY id LIMIT ?",
+            parameters,
+        ))
+
+    def public_export_rows(self, limit: int) -> list[sqlite3.Row]:
+        """Primary, archived rows cleared for public display: source must have
+        public_enabled=1, manual_review sources additionally need an approved review,
+        and the row must carry at least one of the candidate_keywords location tags —
+        general Petrovaradin mentions with no specific sub-location wait until tagged."""
+        return list(self.connection.execute(
+            """SELECT u.id, u.article_title, u.article_text, u.final_url, u.url,
+                      u.published_at, u.lokacija, u.image_url
+               FROM urls u JOIN sources s ON s.id=u.site_id
+               WHERE u.download_status='archived' AND u.is_primary=1
+                 AND u.media_kind='html' AND s.public_enabled=1
+                 AND (s.manual_review=0 OR u.review_status='approved')
+                 AND u.lokacija IS NOT NULL AND u.lokacija<>''
+               ORDER BY u.id LIMIT ?""",
+            (limit,),
+        ))
+
+    def set_lokacija(self, row_id: int, lokacija: str | None) -> None:
+        self.connection.execute("UPDATE urls SET lokacija=? WHERE id=?", (lokacija, row_id))
+        self.connection.commit()
 
     def duplicate_groups(self, limit: int = 100) -> list[sqlite3.Row]:
         return list(self.connection.execute(
