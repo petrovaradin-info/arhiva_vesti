@@ -24,6 +24,7 @@ from .providers.google_site_search import GoogleSiteSearchProvider
 from .providers.sitemap_content import SitemapContentProvider
 from .providers.duckduckgo_site_search import DuckDuckGoSiteSearchProvider
 from .article_adapters import extract_article
+from .keywords import detect_locations
 from .special import PretrazivaDiscoverer, SpecialDownloader, SpecialRepository
 
 
@@ -139,6 +140,7 @@ def cmd_download(args: argparse.Namespace) -> int:
         resolve_path(root, settings.get("file_dir", "data/files")),
         resolve_path(root, settings.get("text_dir", "data/text")),
         settings.get("archive", {}),
+        settings.get("candidate_keywords", []),
     )
     try:
         counts = downloader.run(args.limit, args.site, args.mode)
@@ -170,7 +172,7 @@ def cmd_download_assets(args: argparse.Namespace) -> int:
 
 def cmd_special_discover(args: argparse.Namespace) -> int:
     root, settings, sites, db, client = context(args.config_dir)
-    repository = SpecialRepository(db.connection)
+    repository = SpecialRepository(db.connection, settings.get("candidate_keywords", []))
     try:
         result = PretrazivaDiscoverer(
             repository, client, resolve_path(root, settings["data_dir"]) / "special" / "discovery"
@@ -243,6 +245,7 @@ def cmd_special_list(args: argparse.Namespace) -> int:
 
 def cmd_analyze(args: argparse.Namespace) -> int:
     root, settings, sites, db, client = context(args.config_dir)
+    candidate_keywords = settings.get("candidate_keywords", [])
     analyzed = duplicates = failed = 0
     try:
         for row in db.unanalyzed_html_rows(args.limit, args.site):
@@ -255,7 +258,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
                     content = path.read_bytes()
                 config = json.loads(row["config_json"] or "{}")
                 article = extract_article(
-                    content, row["final_url"] or row["url"], config.get("adapter", "generic")
+                    content, row["final_url"] or row["url"], config.get("adapter", "generic"),
+                    config.get("body_selector"), config.get("strip_selectors"),
                 )
                 group_id = db.store_article_analysis(
                     row["id"], title=article.title, body_text=article.body_text,
@@ -263,7 +267,11 @@ def cmd_analyze(args: argparse.Namespace) -> int:
                     canonical_url=article.canonical_url,
                     original_source_url=article.original_source_url,
                     adapter_name=article.adapter_name,
+                    image_url=article.image_url,
                 )
+                if candidate_keywords:
+                    lokacija_text = " ".join(filter(None, [article.title, article.body_text]))
+                    db.set_lokacija(row["id"], detect_locations(lokacija_text, candidate_keywords))
                 analyzed += 1
                 duplicates += int(group_id != row["id"])
             except Exception as exc:
@@ -273,6 +281,83 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         db.close()
         client.close()
     print(f"analizirano={analyzed}; povezano_kao_kopija={duplicates}; neuspešno={failed}")
+    return 0
+
+
+def cmd_recategorize(args: argparse.Namespace) -> int:
+    """Tags already-archived Petrovaradin content with sub-location keywords
+    (config/settings.yaml candidate_keywords) without re-downloading anything."""
+    root, settings, sites, db, client = context(args.config_dir)
+    candidate_keywords = settings.get("candidate_keywords", [])
+    tagged = untagged = 0
+    try:
+        if not candidate_keywords:
+            print("Nema candidate_keywords u config/settings.yaml — ništa za tagovanje.")
+            return 0
+        for row in db.rows_for_recategorize(args.limit, args.site):
+            text = " ".join(filter(None, [row["article_title"], row["article_text"]]))
+            lokacija = detect_locations(text, candidate_keywords)
+            db.set_lokacija(row["id"], lokacija)
+            tagged += int(lokacija is not None)
+            untagged += int(lokacija is None)
+        special_tagged = special_untagged = 0
+        repository = SpecialRepository(db.connection)
+        for row in repository.rows_for_recategorize(args.limit):
+            text = " ".join(filter(None, [row["title"], row["description"]]))
+            lokacija = detect_locations(text, candidate_keywords)
+            repository.set_lokacija(row["id"], lokacija)
+            special_tagged += int(lokacija is not None)
+            special_untagged += int(lokacija is None)
+    finally:
+        db.close()
+        client.close()
+    print(
+        f"urls: označeno={tagged}; bez_lokacije={untagged} | "
+        f"special_records: označeno={special_tagged}; bez_lokacije={special_untagged}"
+    )
+    return 0
+
+
+def _export_datum(published_at: str | None) -> str | None:
+    if not published_at:
+        return None
+    value = published_at.strip()
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def cmd_export_public(args: argparse.Namespace) -> int:
+    """Exports archived, public-cleared urls rows as JSON matching the WP
+    import-archive endpoint schema (id/naslov/sadrzaj/datum/url/slika_url/lokacija)."""
+    root, settings, sites, db, client = context(args.config_dir)
+    try:
+        rows = db.public_export_rows(args.limit)
+    finally:
+        db.close()
+        client.close()
+    records = [
+        {
+            "id": f"urls:{row['id']}",
+            "naslov": row["article_title"],
+            "sadrzaj": row["article_text"],
+            "datum": _export_datum(row["published_at"]),
+            "url": row["final_url"] or row["url"],
+            "slika_url": row["image_url"],
+            "lokacija": row["lokacija"].split(", ") if row["lokacija"] else [],
+        }
+        for row in rows
+    ]
+    payload = json.dumps(records, ensure_ascii=False, indent=2)
+    if args.out:
+        Path(args.out).write_text(payload, encoding="utf-8")
+        print(f"Izvezeno {len(records)} zapisa u {args.out}")
+    else:
+        print(payload)
     return 0
 
 
@@ -736,6 +821,22 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--limit", type=int, default=1000)
     analyze.add_argument("--site")
     analyze.set_defaults(func=cmd_analyze)
+
+    recategorize = sub.add_parser(
+        "recategorize",
+        help="Tagira već arhiviran sadržaj pod-lokacijama iz candidate_keywords (bez ponovnog preuzimanja)",
+    )
+    recategorize.add_argument("--limit", type=int, default=100000)
+    recategorize.add_argument("--site")
+    recategorize.set_defaults(func=cmd_recategorize)
+
+    export_public = sub.add_parser(
+        "export-public",
+        help="Izvozi arhivirane, javno odobrene zapise kao JSON za WP import-archive endpoint",
+    )
+    export_public.add_argument("--limit", type=int, default=100000)
+    export_public.add_argument("--out", help="Putanja fajla; bez ovoga ispisuje na stdout")
+    export_public.set_defaults(func=cmd_export_public)
 
     duplicates = sub.add_parser("duplicates", help="Prikazuje grupe prenetih/duplih vesti")
     duplicates.add_argument("--limit", type=int, default=100)
