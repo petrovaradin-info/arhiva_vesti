@@ -109,18 +109,26 @@ def cmd_discover(args: argparse.Namespace) -> int:
                     for item in provider.discover(site):
                         provider_seen += 1
                         seen += 1
-                        added += int(db.add(item))
+                        is_new = db.add(item)
+                        added += int(is_new)
+                        print(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
+                              f"provider={provider.name} URL={item.url}", flush=True)
                 except Exception as exc:
                     print(f"[{site['id']}] {provider.name} greška: {exc}", file=sys.stderr)
                 if (provider.name == "selenium_internal_search"
-                        and provider_seen == 0 and site.get("google_fallback")
+                        and (site.get("google_supplement")
+                             or (provider_seen == 0 and site.get("google_fallback")))
                         and "google" not in args.provider):
                     fallback = GoogleSiteSearchProvider(settings)
-                    print(f"[{site['id']}] interna pretraga je prazna; fallback: google_site_search")
+                    reason = "dopuna interne pretrage" if site.get("google_supplement") else "interna pretraga bez kandidata"
+                    print(f"[{site['id']}] {reason}; google_site_search", flush=True)
                     try:
                         for item in fallback.discover(site):
                             seen += 1
-                            added += int(db.add(item))
+                            is_new = db.add(item)
+                            added += int(is_new)
+                            print(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
+                                  f"provider={fallback.name} URL={item.url}", flush=True)
                     except Exception as exc:
                         print(f"[{site['id']}] Google fallback nije uspeo: {exc}", file=sys.stderr)
     finally:
