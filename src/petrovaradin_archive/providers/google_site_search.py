@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
-from urllib.parse import quote_plus, urlsplit
+from urllib.parse import quote_plus
 
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 
-from ..keywords import contains_keyword
 from ..models import DiscoveredURL
-from ..urltools import canonicalize_url, host_matches, is_non_article_url
+from ..urltools import canonicalize_url, host_matches
+from .selenium_search import SeleniumInternalSearchProvider
 
 
 class GoogleSiteSearchProvider:
@@ -39,6 +40,8 @@ class GoogleSiteSearchProvider:
         domain = site.get("google_domain") or site["domains"][0]
         max_pages = int(site.get("google_max_pages", self.settings.get("max_pages", 30)))
         wait = float(self.settings.get("page_wait_seconds", 2))
+        audit = SeleniumInternalSearchProvider({"keywords": self.keywords})
+        audit._log(site, f"browser=start provider={self.name}; domen={domain}")
         driver = self._driver()
         seen: set[str] = set()
         try:
@@ -47,26 +50,35 @@ class GoogleSiteSearchProvider:
                 for page in range(max_pages):
                     query = quote_plus(f'site:{domain} "{keyword}"')
                     search_url = f"https://www.google.com/search?q={query}&filter=0&start={page * 10}"
-                    driver.get(search_url)
+                    audit._navigate(driver, site, search_url)
                     time.sleep(wait)
+                    if ("/sorry/" in driver.current_url
+                            or driver.find_elements(By.CSS_SELECTOR, "form[action*='sorry'], #captcha-form")):
+                        raise TimeoutException(f"status=challenge; URL={driver.current_url}")
                     results = []
+                    page_urls = set()
                     for element in driver.find_elements(By.CSS_SELECTOR, "a[href]"):
                         href = element.get_attribute("href") or ""
                         if not host_matches(href, site["domains"]):
                             continue
                         canonical = canonicalize_url(href)
-                        if canonical in seen or is_non_article_url(
-                            href, site.get("exclude_url_patterns", [])
-                        ):
-                            continue
+                        page_urls.add(canonical)
                         try:
                             context = element.find_element(By.XPATH, "ancestor::div[1]").text
-                        except Exception:
+                        except WebDriverException:
                             context = element.text
-                        if not contains_keyword(f"{href} {context}", self.keywords):
+                        status = audit._candidate_status(
+                            href, f"{href} {context}", site,
+                            {"trust_search_results": False}, seen,
+                        )
+                        audit._log(site, f"provider={self.name} strana={page + 1} "
+                                   f"status={status} URL={href}")
+                        if status != "accepted":
                             continue
                         results.append((canonical, href, element.text.strip(), context.strip()))
-                    signature = tuple(item[0] for item in results)
+                    signature = tuple(sorted(page_urls))
+                    audit._log(site, f"provider={self.name} strana={page + 1} "
+                               f"kandidata={len(results)} URL={search_url}")
                     if not signature or signature == previous_signature:
                         break
                     previous_signature = signature
