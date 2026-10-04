@@ -17,6 +17,7 @@ from selenium import webdriver
 
 from .content import content_kind, decode_html, extract_text, safe_extension, url_extension
 from .http import PoliteClient
+from .keywords import detect_locations
 from .urltools import canonicalize_url
 
 
@@ -180,14 +181,35 @@ def parse_pretraziva_results(html: bytes | str) -> tuple[list[SpecialResult], st
 
 
 class SpecialRepository:
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, candidate_keywords: list[str] | None = None):
         self.connection = connection
+        self.candidate_keywords = candidate_keywords or []
         self.connection.executescript(SPECIAL_SCHEMA)
+        self._migrate()
         self.connection.execute(
             "INSERT OR IGNORE INTO special_sources(id,name,category,base_url) VALUES(?,?,?,?)",
             ("pretraziva", "Pretraživa", "specialized_database", "https://pretraziva.rs/"),
         )
         self._reconcile_copies()
+        self.connection.commit()
+
+    def _migrate(self) -> None:
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(special_records)")}
+        if "lokacija" not in columns:
+            self.connection.execute("ALTER TABLE special_records ADD COLUMN lokacija TEXT")
+        self.connection.commit()
+
+    def rows_for_recategorize(self, limit: int) -> list[sqlite3.Row]:
+        """title+description only — special_copies don't keep full extracted text in the DB."""
+        return list(self.connection.execute(
+            "SELECT id, title, description FROM special_records ORDER BY id LIMIT ?", (limit,),
+        ))
+
+    def set_lokacija(self, record_id: int, lokacija: str | None) -> None:
+        self.connection.execute(
+            "UPDATE special_records SET lokacija=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (lokacija, record_id),
+        )
         self.connection.commit()
 
     def _reconcile_copies(self) -> None:
@@ -261,13 +283,16 @@ class SpecialRepository:
             f"{_normalized(result.title)}|{result.record_date}|{result.page_label}".encode()
         ).hexdigest()
         before = self.connection.total_changes
+        lokacija = detect_locations(
+            f"{result.title} {result.description}", self.candidate_keywords
+        ) if self.candidate_keywords else None
         self.connection.execute(
             """INSERT OR IGNORE INTO special_records
             (canonical_key,title,description,record_date,estimated_period,original_source_name,
-             content_type,page_label) VALUES(?,?,?,?,?,?,?,?)""",
+             content_type,page_label,lokacija) VALUES(?,?,?,?,?,?,?,?,?)""",
             (canonical_key, result.title, result.description, result.record_date,
              result.record_date[:4] if result.record_date else None,
-             result.original_source_name, result.content_type, result.page_label),
+             result.original_source_name, result.content_type, result.page_label, lokacija),
         )
         created = self.connection.total_changes > before
         record_id = int(self.connection.execute(

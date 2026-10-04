@@ -16,17 +16,19 @@ from .content import content_kind, decode_html, extract_text, safe_extension, ur
 from .http import PoliteClient
 from .urltools import host_matches
 from .article_adapters import extract_article
+from .keywords import detect_locations
 
 
 class Downloader:
     def __init__(self, db: ArchiveDB, client: PoliteClient, html_dir: Path,
                  keywords: list[str], max_retries: int = 3, selenium_settings: dict | None = None,
                  file_dir: Path | None = None, text_dir: Path | None = None,
-                 archive_settings: dict | None = None):
+                 archive_settings: dict | None = None, candidate_keywords: list[str] | None = None):
         self.db = db
         self.client = client
         self.html_dir = html_dir
         self.keywords = [word.casefold() for word in keywords]
+        self.candidate_keywords = candidate_keywords or []
         self.max_retries = max_retries
         self.selenium_settings = selenium_settings or {}
         self.file_dir = file_dir or html_dir.parent / "files"
@@ -200,7 +202,9 @@ class Downloader:
                 if kind == "html":
                     source_config = json.loads(source["config_json"] or "{}") if source else {}
                     article = extract_article(
-                        content, final_url, source_config.get("adapter", "generic")
+                        content, final_url, source_config.get("adapter", "generic"),
+                        source_config.get("body_selector"),
+                        source_config.get("strip_selectors"),
                     )
                     self.db.store_article_analysis(
                         row["id"], title=article.title, body_text=article.body_text,
@@ -208,7 +212,13 @@ class Downloader:
                         canonical_url=article.canonical_url,
                         original_source_url=article.original_source_url,
                         adapter_name=article.adapter_name,
+                        image_url=article.image_url,
                     )
+                    if self.candidate_keywords:
+                        lokacija_text = " ".join(filter(None, [article.title, article.body_text]))
+                        self.db.set_lokacija(
+                            row["id"], detect_locations(lokacija_text, self.candidate_keywords)
+                        )
                     self._queue_assets(row["id"], content, final_url, domains)
                 counts["archived"] += 1
                 source = self.db.source(row["site_id"])
