@@ -59,6 +59,7 @@ def choose_sites(sites: list[dict], site_ids: list[str] | None, db: ArchiveDB) -
             merged["manual_review"] = bool(source["manual_review"])
             merged["blocklist"] = json.loads(source["blocklist_json"] or "[]")
         enabled.append(merged)
+    enabled.sort(key=lambda site: bool(site.get("run_last", False)))
     if not site_ids:
         return enabled
     selected = [site for site in enabled if site["id"] in site_ids]

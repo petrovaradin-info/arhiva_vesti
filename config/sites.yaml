@@ -334,13 +334,6 @@ sites:
     manual_review: true
     internal_search: {enabled: true, engine: selenium, start_url: "https://vesti-online.com/?s=petrovaradin", page_url_template: "https://vesti-online.com/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
 
-  - id: "republika"
-    name: "Republika"
-    domains: ["republika.rs", "www.republika.rs"]
-    enabled: true
-    manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page=1", page_url_template: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
-
   - id: "politika"
     name: "Politika"
     domains: ["politika.rs", "www.politika.rs"]
@@ -589,3 +582,11 @@ sites:
     google_fallback: true
     sitemaps: ["https://kulturnestanice.rs/wp-sitemap.xml"]
     internal_search: {enabled: true, engine: selenium, start_url: "https://kulturnestanice.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+
+  - id: "republika"
+    name: "Republika"
+    run_last: true
+    domains: ["republika.rs", "www.republika.rs"]
+    enabled: true
+    manual_review: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page=1", page_url_template: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page={page}", result_link_css: ".search-page .news-list .news-item-title a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}

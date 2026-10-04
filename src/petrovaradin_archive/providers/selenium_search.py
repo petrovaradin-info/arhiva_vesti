@@ -138,9 +138,11 @@ class SeleniumInternalSearchProvider:
             for start_url, variant_config in variants:
                 try:
                     self._navigate(driver, site, start_url)
-                    yield from self._walk_pages(
+                    stop_reason = yield from self._walk_pages(
                         driver, site, variant_config, start_url, set(), seen_urls
                     )
+                    if stop_reason == "repeated_page":
+                        return
                 except WebDriverException as exc:
                     self._log(site, f"status=search_error query={start_url}; "
                               f"URL={self.last_url}; {exc.msg}")
@@ -162,7 +164,7 @@ class SeleniumInternalSearchProvider:
             hrefs = [e.get_attribute("href") for e in driver.find_elements(
                 By.CSS_SELECTOR, config["result_link_css"]
             )]
-            return tuple(sorted({href for href in hrefs if href}))
+            return tuple(sorted({canonicalize_url(href) for href in hrefs if href}))
         except StaleElementReferenceException:
             return ()
 
@@ -255,15 +257,19 @@ class SeleniumInternalSearchProvider:
                     records.append((href, anchor_text, title, context))
                 except StaleElementReferenceException:
                     self._log(site, f"status=stale_element; URL={driver.current_url}")
-            signature = tuple(sorted({r[0] for r in records}))
+            signature = tuple(sorted({canonicalize_url(r[0]) for r in records}))
             self._log(site, f"strana {page_number}: {len(records)} kandidata; URL={driver.current_url}")
             if not signature:
                 self._log(site, "status=empty_results; kraj")
                 progress.complete()
                 return
             if signature in seen_pages:
-                self._log(site, f"status=repeated_page; kraj; URL={driver.current_url}")
-                return
+                compared = "prethodnoj" if signature == previous else "ranijoj"
+                self._log(site, f"status=repeated_page; strana={page_number}; "
+                          f"ponavljaju se isti URL-ovi kao na {compared} stranici; "
+                          f"verovatno nepostojeća stranica; završavam ovaj sajt; "
+                          f"jedinstvenih_URL={len(signature)}; URL={page_url}")
+                return "repeated_page"
             seen_pages.add(signature)
             counts = Counter()
             eligible = []
