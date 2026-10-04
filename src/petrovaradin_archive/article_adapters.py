@@ -19,6 +19,7 @@ class ArticleData:
     canonical_url: str | None
     original_source_url: str | None
     adapter_name: str
+    image_url: str | None = None
 
 
 BODY_SELECTORS = {
@@ -61,7 +62,10 @@ def _external_original(soup: BeautifulSoup, page_url: str) -> str | None:
     return None
 
 
-def extract_article(content: bytes | str, page_url: str, adapter: str = "generic") -> ArticleData:
+def extract_article(
+    content: bytes | str, page_url: str, adapter: str = "generic",
+    body_selector: str | None = None, extra_strip_selectors: list[str] | None = None,
+) -> ArticleData:
     soup = BeautifulSoup(decode_html(content), "html.parser")
     if adapter == "generic":
         generator = _meta(soup, "meta[name='generator']") or ""
@@ -76,18 +80,21 @@ def extract_article(content: bytes | str, page_url: str, adapter: str = "generic
         soup, "meta[property='article:published_time']", "meta[name='date']",
         "time[datetime]", "[itemprop='datePublished']",
     )
+    image = _meta(soup, "meta[property='og:image']", "meta[name='twitter:image']")
     adapter_name = adapter if adapter in BODY_SELECTORS else "generic"
-    body = None
-    for selector in BODY_SELECTORS[adapter_name]:
-        body = soup.select_one(selector)
-        if body:
-            break
+    body = soup.select_one(body_selector) if body_selector else None
+    if body is None:
+        for selector in BODY_SELECTORS[adapter_name]:
+            body = soup.select_one(selector)
+            if body:
+                break
     if body is None:
         body = soup.body or soup
     body = BeautifulSoup(str(body), "html.parser")
-    for node in body.select(
-        "script,style,noscript,nav,footer,aside,form,.sharedaddy,.share,.social,.related,.comments"
-    ):
+    strip_selector = "script,style,noscript,nav,footer,aside,form,.sharedaddy,.share,.social,.related,.comments"
+    if extra_strip_selectors:
+        strip_selector += "," + ",".join(extra_strip_selectors)
+    for node in body.select(strip_selector):
         node.decompose()
     body_text = re.sub(r"\s+", " ", body.get_text(" ", strip=True)).strip()
     return ArticleData(
@@ -97,6 +104,7 @@ def extract_article(content: bytes | str, page_url: str, adapter: str = "generic
         canonical_url=urljoin(page_url, canonical) if canonical else None,
         original_source_url=_external_original(soup, page_url),
         adapter_name=adapter_name,
+        image_url=urljoin(page_url, image) if image else None,
     )
 
 
