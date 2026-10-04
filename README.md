@@ -47,6 +47,33 @@ Selektori i URL interne pretrage nalaze se u `config/sites.yaml`. Portali menjaj
 pa selektore treba proveriti i prilagoditi po sajtu. Generički `a[href]` hvata širi skup,
 a baza uklanja duplikate.
 
+### Dijagnostika interne pretrage
+
+Log prikazuje planirani URL pre pokretanja browsera, svaki pokušaj navigacije,
+stvarni URL posle učitavanja i status svakog kandidata: `accepted`, `duplicate`,
+`blocklist`, `non_article`, `outside_domain` ili `no_keyword`. Posle upisa sledi
+`baza status=new/existing`. `accepted` znači kandidat za proveru, ne arhiviran članak.
+Postojeća lista `blocklist` odbacuje URL prefikse; `exclude_url_patterns` odbacuje
+URL-ove po regularnim izrazima. Log omogućava pregled pre dopunjavanja ovih lista.
+
+Razlikuju se `browser_start_error` (nijedna stranica još nije otvorena),
+`navigation_error`, `rate_limited`, `challenge`, `results_timeout`, `repeated_page`,
+`no_next_link`, `no_next_cursor` i `max_pages`. Nedostajući selektor ili zaštitna
+provera više se ne predstavljaju kao potvrđeno prazna pretraga.
+
+Relativni Chrome profili rešavaju se u odnosu na koren projekta. Buka i KoSSev
+imaju po jedan ponovni pokušaj sa privremenim profilom ako Chrome ne uspe da
+pokrene sesiju. Postojeći profil se ne briše; privremeni profil se uklanja po
+zatvaranju browsera. Zaštitna provera ostaje ručna u otvorenom browseru (do 120 s).
+
+Beta prvo otvara početnu stranicu, zatim pretragu i prati stvarne `rel=next`
+linkove. HTTP 429 u browseru prijavljuje se kao ograničenje zahteva i prekida
+prolaz; ponoviti kasnije. Mašina koristi `https://www.masina.rs/?s=petrovaradin`.
+021 prati stvarne GSC kontrole, a `google_supplement: true` pokreće Google
+`site:` pretragu i kada interna pretraga već ima rezultate. Ni Google ni GSC ne
+garantuju kompletnu arhivu; dostupni su i `--provider sitemap`, `--provider scan`
+i ručni uvoz URL-ova. Eksplicitni `--provider google` sprečava duplu dopunu.
+
 ## Ručni uvoz URL-ova
 
 CSV treba da ima kolonu `url` ili `link`; TXT treba da ima jedan URL po redu:

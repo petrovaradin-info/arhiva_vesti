@@ -20,6 +20,7 @@ from .http import PoliteClient
 from .importer import import_urls
 from .providers import SitemapProvider
 from .providers.selenium_search import SeleniumInternalSearchProvider
+from .providers.wordpress_search import WordPressSearchProvider
 from .providers.google_site_search import GoogleSiteSearchProvider
 from .providers.sitemap_content import SitemapContentProvider
 from .providers.duckduckgo_site_search import DuckDuckGoSiteSearchProvider
@@ -59,6 +60,7 @@ def choose_sites(sites: list[dict], site_ids: list[str] | None, db: ArchiveDB) -
             merged["manual_review"] = bool(source["manual_review"])
             merged["blocklist"] = json.loads(source["blocklist_json"] or "[]")
         enabled.append(merged)
+    enabled.sort(key=lambda site: bool(site.get("run_last", False)))
     if not site_ids:
         return enabled
     selected = [site for site in enabled if site["id"] in site_ids]
@@ -88,7 +90,9 @@ def cmd_discover(args: argparse.Namespace) -> int:
             int(settings.get("request", {}).get("max_sitemaps_per_site", 100)),
         ))
     if "selenium" in args.provider:
-        providers.append(SeleniumInternalSearchProvider(settings))
+        providers.append(SeleniumInternalSearchProvider(settings, db, getattr(args, 'full_scan', False)))
+    if "wordpress" in args.provider:
+        providers.append(WordPressSearchProvider(client, settings, db, getattr(args, 'full_scan', False)))
     if "google" in args.provider:
         providers.append(GoogleSiteSearchProvider(settings))
     if "scan" in args.provider:
@@ -98,10 +102,15 @@ def cmd_discover(args: argparse.Namespace) -> int:
     added = seen = 0
     try:
         for site in choose_sites(sites, args.site, db):
+            if getattr(args, 'newest_first', False):
+                site = dict(site)
+                site['internal_search'] = dict(site.get('internal_search', {}), newest_first=True)
             if args.max_pages:
                 site = dict(site)
                 site["internal_search"] = dict(site.get("internal_search", {}))
                 site["internal_search"]["max_pages"] = args.max_pages
+                site["wordpress_search"] = dict(site.get("wordpress_search", {}))
+                site["wordpress_search"]["max_pages"] = args.max_pages
                 site["google_max_pages"] = args.max_pages
             for provider in providers:
                 print(f"[{site['id']}] discovery: {provider.name}", flush=True)
@@ -110,18 +119,31 @@ def cmd_discover(args: argparse.Namespace) -> int:
                     for item in provider.discover(site):
                         provider_seen += 1
                         seen += 1
-                        added += int(db.add(item))
+                        is_new = db.add(item)
+                        added += int(is_new)
+                        print(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
+                              f"provider={provider.name} URL={item.url}", flush=True)
                 except Exception as exc:
                     print(f"[{site['id']}] {provider.name} greška: {exc}", file=sys.stderr)
+                if isinstance(getattr(provider, 'existing_count', None), int):
+                    print(f"[{site['id']}] provider={provider.name}; "
+                          f"novih_kandidata={provider_seen}; poznatih_preskočeno={provider.existing_count}",
+                          flush=True)
                 if (provider.name == "selenium_internal_search"
-                        and provider_seen == 0 and site.get("google_fallback")
+                        and (site.get("google_supplement")
+                             or (provider_seen == 0 and not provider.existing_count
+                                 and site.get("google_fallback")))
                         and "google" not in args.provider):
                     fallback = GoogleSiteSearchProvider(settings)
-                    print(f"[{site['id']}] interna pretraga je prazna; fallback: google_site_search")
+                    reason = "dopuna interne pretrage" if site.get("google_supplement") else "interna pretraga bez kandidata"
+                    print(f"[{site['id']}] {reason}; google_site_search", flush=True)
                     try:
                         for item in fallback.discover(site):
                             seen += 1
-                            added += int(db.add(item))
+                            is_new = db.add(item)
+                            added += int(is_new)
+                            print(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
+                                  f"provider={fallback.name} URL={item.url}", flush=True)
                     except Exception as exc:
                         print(f"[{site['id']}] Google fallback nije uspeo: {exc}", file=sys.stderr)
     finally:
@@ -757,9 +779,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     discover = sub.add_parser("discover", help="Otkriva istorijske URL-ove")
     discover.add_argument("--provider", action="append",
-                          choices=["sitemap", "selenium", "google", "ddg", "scan"],
+                          choices=["sitemap", "selenium", "wordpress", "google", "ddg", "scan"],
                           required=True)
     discover.add_argument("--site", action="append", help="ID sajta; izostaviti za sve")
+    discover.add_argument("--full-scan", action="store_true",
+                          help="Obiđi sve stranice i kada postoje ranije poznati URL-ovi")
+    discover.add_argument("--newest-first", action="store_true",
+                          help="Potvrđen hronološki redosled interne pretrage; ne važi za Google CSE")
     discover.add_argument(
         "--max-pages", type=int,
         help="Privremeni limit stranica po izvoru, koristan za probu adaptera",

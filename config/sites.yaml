@@ -1,5 +1,8 @@
 sites:
   - id: "buka_6yka"
+    wordpress_search:
+      endpoint: "https://6yka.com/wp-json/wp/v2/posts"
+      max_pages: 200
     name: "BUKA / 6yka"
     domains: ["6yka.com", "www.6yka.com"]
     enabled: true
@@ -16,6 +19,9 @@ sites:
       max_pages: 200
       headless: false
       user_data_dir: "data/browser_profiles/buka_6yka"
+      retry_with_fresh_profile: true
+      require_next_link: true
+      empty_result_css: ".no-results, .not-found"
       challenge_wait_seconds: 120
 
   - id: "sportski_zurnal"
@@ -52,10 +58,10 @@ sites:
     internal_search:
       enabled: true
       engine: selenium
-      start_url: "https://www.masina.rs/pretraga/?_sf_s=petrovaradin"
-      result_link_css: ".cl-element-title__anchor[href]"
+      start_url: "https://www.masina.rs/?s=petrovaradin"
+      result_link_css: ".masina-card__title a[href]"
+      empty_result_css: ".no-results"
       next_css: "a[rel='next'], a.next"
-      pagination_mode: infinite_scroll
       max_pages: 200
 
   - id: "021"
@@ -70,13 +76,15 @@ sites:
     # (.commentsBlock), "najčitanije" (.storyInlineArticles), "dodaj kao izvor" dugme
     # (.bottomShare) i listu tagova na dnu (.tags).
     strip_selectors: [".moreCategory", ".articleCopyright", ".commentsBlock", ".storyInlineArticles", ".bottomShare", ".tags"]
+    google_supplement: true
     sitemaps:
       - "https://www.021.rs/sitemap.xml"
     internal_search:
       enabled: true
       engine: selenium
       start_url: "https://www.021.rs/search?q=petrovaradin#gsc.tab=0&gsc.q=petrovaradin&gsc.page=1"
-      result_link_css: ".gsc-result a.gs-title, article a[href]"
+      result_link_css: ".gsc-webResult .gs-title a.gs-title[href]"
+      empty_result_css: ".gs-no-results-result"
       next_css: ".gsc-cursor-next-page, a[rel='next'], a.next"
       pagination_mode: gsc
       max_pages: 200
@@ -100,7 +108,15 @@ sites:
     enabled: true
     sitemaps: ["https://beta.rs/sitemap.xml"]
     google_fallback: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://beta.rs/search?query=petrovaradin", page_url_template: "https://beta.rs/search?query=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a.next, a[rel='next']", max_pages: 200}
+    internal_search:
+      enabled: true
+      engine: selenium
+      start_url: "https://beta.rs/search?query=petrovaradin"
+      bootstrap_url: "https://beta.rs/"
+      bootstrap_wait_seconds: 3
+      result_link_css: "a.text-dark[href^='/content/']"
+      next_css: "a[rel='next']"
+      max_pages: 200
 
   - id: "nova"
     name: "Nova"
@@ -131,11 +147,26 @@ sites:
     internal_search: {enabled: true, engine: selenium, start_url: "https://www.krik.rs/?s=petrovaradin", result_link_css: "article a[href], .elementor-post__title a", next_css: "a.next, a[rel='next']", max_pages: 200}
 
   - id: "kossev"
+    wordpress_search:
+      endpoint: "https://kossev.info/wp-json/wp/v2/posts"
+      max_pages: 200
     name: "KoSSev"
     domains: ["kossev.info"]
     enabled: true
     sitemaps: ["https://kossev.info/sitemap_index.xml"]
-    internal_search: {enabled: true, engine: selenium, start_url: "https://kossev.info/?s=Petrovaradin", page_url_template: "https://kossev.info/page/{page}/?s=Petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a.next, a[rel='next']", max_pages: 200}
+    internal_search:
+      enabled: true
+      engine: selenium
+      start_url: "https://kossev.info/?s=Petrovaradin"
+      page_url_template: "https://kossev.info/page/{page}/?s=Petrovaradin"
+      result_link_css: "article h2 a, article h3 a, .elementor-post__title a, .entry-title a"
+      empty_result_css: ".no-results, .not-found"
+      next_css: "a.next, a[rel='next']"
+      max_pages: 200
+      headless: false
+      user_data_dir: "data/browser_profiles/kossev"
+      retry_with_fresh_profile: true
+      challenge_wait_seconds: 120
 
   - id: "vreme"
     name: "Vreme"
@@ -188,7 +219,7 @@ sites:
       enabled: true
       engine: selenium
       start_url: "https://srbijasport.net/search?q=petrovaradin"
-      result_link_css: ".gsc-result a.gs-title, article a[href]"
+      result_link_css: ".gsc-webResult .gs-title a.gs-title[href]"
       next_css: ".gsc-cursor-next-page, a[rel='next'], a.next"
       pagination_mode: gsc
       max_pages: 200
@@ -310,13 +341,6 @@ sites:
     enabled: true
     manual_review: true
     internal_search: {enabled: true, engine: selenium, start_url: "https://vesti-online.com/?s=petrovaradin", page_url_template: "https://vesti-online.com/page/{page}/?s=petrovaradin", result_link_css: "article h2 a, article h3 a", next_css: "a[rel='next'], a.next", max_pages: 200}
-
-  - id: "republika"
-    name: "Republika"
-    domains: ["republika.rs", "www.republika.rs"]
-    enabled: true
-    manual_review: true
-    internal_search: {enabled: true, engine: selenium, start_url: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page=1", page_url_template: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page={page}", result_link_css: "article a[href], .search-results a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
 
   - id: "politika"
     name: "Politika"
@@ -566,3 +590,11 @@ sites:
     google_fallback: true
     sitemaps: ["https://kulturnestanice.rs/wp-sitemap.xml"]
     internal_search: {enabled: true, engine: selenium, start_url: "https://kulturnestanice.rs/?s=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+
+  - id: "republika"
+    name: "Republika"
+    run_last: true
+    domains: ["republika.rs", "www.republika.rs"]
+    enabled: true
+    manual_review: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page=1", page_url_template: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page={page}", result_link_css: ".search-page .news-list .news-item-title a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
