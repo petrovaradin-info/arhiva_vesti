@@ -17,9 +17,9 @@ from selenium import webdriver
 
 from .content import content_kind, decode_html, extract_text, safe_extension, url_extension
 from .http import PoliteClient
+from .logging_utils import log
 from .keywords import detect_locations
 from .urltools import canonicalize_url
-
 
 CONTENT_TYPES = {
     "news", "historical_press", "official_document", "public_notice", "advertisement",
@@ -392,7 +392,7 @@ class PretrazivaDiscoverer:
                 while url and (max_pages <= 0 or page_number < max_pages):
                     page_number += 1
                     started = time.monotonic()
-                    print(f"[{script}] [{page_number}/{max_pages}] otvaram: {url}", flush=True)
+                    log(f"[{script}] [{page_number}/{max_pages}] otvaram: {url}", flush=True)
                     response = self.client.get(url)
                     response.raise_for_status()
                     payload = response.content
@@ -415,7 +415,7 @@ class PretrazivaDiscoverer:
                     elapsed = time.monotonic() - started
                     expected_pages = ((total or 0) + results_per_page - 1) // results_per_page
                     pct = page_number / expected_pages * 100 if expected_pages else 0
-                    print(f"  -> archived {len(results)} rezultata ({pct:.0f}%, {elapsed:.2f}s)", flush=True)
+                    log(f"  -> archived {len(results)} rezultata ({pct:.0f}%, {elapsed:.2f}s)", flush=True)
                     if not next_url:
                         break
                     url = next_url
@@ -476,7 +476,7 @@ class SpecialDownloader:
         counts = {k: 0 for k in ("archived", "no_keyword", "retry", "unavailable", "blocked", "manual_capture_needed")}
         for pos, row in enumerate(rows, 1):
             started = time.monotonic(); pct = pos / len(rows) * 100 if rows else 100
-            print(f"[{pos}/{len(rows)}] [{row['portal_name'] or 'unknown'}] {pct:.0f}% {row['url']}", flush=True)
+            log(f"[{pos}/{len(rows)}] [{row['portal_name'] or 'unknown'}] {pct:.0f}% {row['url']}", flush=True)
             try:
                 if not self.client.allowed(row["url"]):
                     raise PermissionError("Blocked by robots.txt")
@@ -525,13 +525,13 @@ class SpecialDownloader:
                     ); counts["archived"] += 1
                 self.repository.connection.commit()
                 status = "archived" if matched else "no_keyword"
-                print(f"  -> {status} ({time.monotonic()-started:.2f}s)", flush=True)
+                log(f"  -> {status} ({time.monotonic()-started:.2f}s)", flush=True)
             except PermissionError as exc:
                 self.repository.connection.execute(
                     "UPDATE special_copies SET download_status='manual_capture_needed',attempts=attempts+1,error=? WHERE id=?",
                     (str(exc), row["id"]),
                 ); self.repository.connection.commit(); counts["manual_capture_needed"] += 1
-                print(f"  -> manual_capture_needed ({time.monotonic()-started:.2f}s)", flush=True)
+                log(f"  -> manual_capture_needed ({time.monotonic()-started:.2f}s)", flush=True)
             except Exception as exc:
                 http_status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
                 retry = row["attempts"] + 1 < self.max_retries and http_status not in {404, 410}
@@ -540,5 +540,5 @@ class SpecialDownloader:
                     "UPDATE special_copies SET download_status=?,attempts=attempts+1,http_status=?,error=? WHERE id=?",
                     (status, http_status, str(exc)[:2000], row["id"]),
                 ); self.repository.connection.commit(); counts[status] += 1
-                print(f"  -> {status} ({time.monotonic()-started:.2f}s): {exc}", flush=True)
+                log(f"  -> {status} ({time.monotonic()-started:.2f}s): {exc}", flush=True)
         return counts

@@ -158,13 +158,15 @@ def test_limit_does_not_navigate_extra_page(provider, site, monkeypatch):
     assert len(driver.visited) == 1
 
 
-def test_script_variants_with_identical_first_page_still_paginate(provider, site, monkeypatch):
+def test_script_variant_with_only_duplicates_stops_site(provider, site, monkeypatch):
     site['internal_search']['search_both_scripts'] = True
     a = Element('https://example.rs/a')
     driver = Driver([{'results': [a]}, {'results': [a], 'next': [Element('/page/2')]},
                      {'results': [Element('https://example.rs/b')]}])
     monkeypatch.setattr(provider, '_driver', lambda _: driver)
-    assert len(list(provider.discover(site))) == 2
+    assert len(list(provider.discover(site))) == 1
+    assert len(driver.visited) == 2
+    assert provider.stop_site
     assert '%D0%9F' in driver.visited[1]
 
 

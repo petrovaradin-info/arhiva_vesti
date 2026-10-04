@@ -9,6 +9,7 @@ from ..content import content_kind, extract_text
 from ..database import ArchiveDB
 from ..http import PoliteClient
 from ..keywords import contains_keyword
+from ..logging_utils import log
 from ..models import DiscoveredURL
 from ..urltools import canonicalize_url, host_matches, is_non_article_url
 
@@ -44,7 +45,7 @@ class SitemapContentProvider:
                     content = gzip.decompress(content)
                 root = ET.fromstring(content)
             except Exception as exc:
-                print(f"  [{site['id']}] sitemap scan preskočen {sitemap_url}: {exc}", flush=True)
+                log(f"  [{site['id']}] sitemap scan preskočen {sitemap_url}: {exc}", flush=True)
                 continue
             locs = [node.text.strip() for node in root.iter()
                     if node.tag.endswith("loc") and node.text]
@@ -55,7 +56,7 @@ class SitemapContentProvider:
                 if checked >= self.max_urls:
                     break
                 if canonicalize_url(url) in known_urls:
-                    print(f"  [{site['id']}] status=existing; bez otvaranja; URL={url}", flush=True)
+                    log(f"  [{site['id']}] status=existing; bez otvaranja; URL={url}", flush=True)
                     continue
                 if (not host_matches(url, site["domains"])
                         or is_non_article_url(url, site.get("exclude_url_patterns", []))
@@ -81,4 +82,4 @@ class SitemapContentProvider:
                         )
                 except Exception as exc:
                     self.db.record_content_scan(site["id"], url, False, str(exc))
-        print(f"  [{site['id']}] pregledano novih sitemap dokumenata: {checked}", flush=True)
+        log(f"  [{site['id']}] pregledano novih sitemap dokumenata: {checked}", flush=True)
