@@ -1,5 +1,8 @@
 sites:
   - id: "buka_6yka"
+    wordpress_search:
+      endpoint: "https://6yka.com/wp-json/wp/v2/posts"
+      max_pages: 200
     name: "BUKA / 6yka"
     domains: ["6yka.com", "www.6yka.com"]
     enabled: true
@@ -136,6 +139,9 @@ sites:
     internal_search: {enabled: true, engine: selenium, start_url: "https://www.krik.rs/?s=petrovaradin", result_link_css: "article a[href], .elementor-post__title a", next_css: "a.next, a[rel='next']", max_pages: 200}
 
   - id: "kossev"
+    wordpress_search:
+      endpoint: "https://kossev.info/wp-json/wp/v2/posts"
+      max_pages: 200
     name: "KoSSev"
     domains: ["kossev.info"]
     enabled: true
@@ -205,7 +211,7 @@ sites:
       enabled: true
       engine: selenium
       start_url: "https://srbijasport.net/search?q=petrovaradin"
-      result_link_css: ".gsc-result a.gs-title, article a[href]"
+      result_link_css: ".gsc-webResult .gs-title a.gs-title[href]"
       next_css: ".gsc-cursor-next-page, a[rel='next'], a.next"
       pagination_mode: gsc
       max_pages: 200

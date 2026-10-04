@@ -48,6 +48,10 @@ class Driver:
     def quit(self):
         self.closed = True
 
+    def execute_script(self, script, element):
+        if 'click()' in script:
+            element.callback()
+
 
 @pytest.fixture
 def provider():
@@ -207,7 +211,7 @@ def test_google_supplement_runs_with_existing_internal_results(monkeypatch, prov
     google = Mock()
     google.name = 'google_site_search'
     google.discover.return_value = iter([])
-    monkeypatch.setattr(cli, 'SeleniumInternalSearchProvider', lambda _: selenium)
+    monkeypatch.setattr(cli, 'SeleniumInternalSearchProvider', lambda *args: selenium)
     monkeypatch.setattr(cli, 'GoogleSiteSearchProvider', lambda _: google)
     db.add.return_value = True
     cli.cmd_discover(Namespace(config_dir=None, provider=providers, site=None, max_pages=None))

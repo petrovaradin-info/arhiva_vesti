@@ -10,6 +10,7 @@ from urllib.parse import quote, urljoin
 
 from selenium import webdriver
 from selenium.common.exceptions import (
+    ElementClickInterceptedException,
     SessionNotCreatedException,
     StaleElementReferenceException,
     TimeoutException,
@@ -21,12 +22,18 @@ from selenium.webdriver.support.ui import WebDriverWait
 from ..keywords import contains_keyword
 from ..models import DiscoveredURL
 from ..urltools import canonicalize_url, host_matches, is_non_article_url
+from .search_progress import SearchProgress
 
 
 class SeleniumInternalSearchProvider:
     name = "selenium_internal_search"
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict, db=None, full_scan=False):
+        self.db = db
+        self.full_scan = full_scan
+        self.known_urls = set()
+        self.existing_count = 0
+        self.last_url = ""
         self.settings = settings.get("selenium", {})
         self.keywords = settings.get("keywords", ["Petrovaradin", "Петроварадин"])
         self.root = Path(__file__).resolve().parents[3]
@@ -90,6 +97,7 @@ class SeleniumInternalSearchProvider:
         return variants
 
     def _navigate(self, driver, site, url):
+        self.last_url = url
         self._log(site, f"otvaranje URL={url}")
         try:
             driver.get(url)
@@ -101,6 +109,8 @@ class SeleniumInternalSearchProvider:
             raise WebDriverException(f"status=rate_limited; HTTP 429 stranica; URL={url}")
 
     def discover(self, site: dict) -> Iterator[DiscoveredURL]:
+        self.existing_count = 0
+        self.known_urls = self.db.known_urls(site['id']) if self.db is not None else set()
         config = site.get("internal_search", {})
         if not config.get("enabled"):
             return
@@ -133,12 +143,15 @@ class SeleniumInternalSearchProvider:
                     )
                 except WebDriverException as exc:
                     self._log(site, f"status=search_error query={start_url}; "
-                              f"URL={driver.current_url}; {exc.msg}")
+                              f"URL={self.last_url}; {exc.msg}")
                     raise
         finally:
             try:
                 if driver is not None:
-                    driver.quit()
+                    try:
+                        driver.quit()
+                    except WebDriverException:
+                        pass
             finally:
                 if temporary_profile:
                     temporary_profile.cleanup()
@@ -202,13 +215,27 @@ class SeleniumInternalSearchProvider:
             return "duplicate"
         if not config.get("trust_search_results", True) and not contains_keyword(searchable, self.keywords):
             return "no_keyword"
+        if canonicalize_url(href) in self.known_urls:
+            return "existing"
         return "accepted"
 
+    def _click(self, driver, site, element):
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'})", element)
+        try:
+            element.click()
+        except ElementClickInterceptedException:
+            self._log(site, f"status=click_intercepted; ponovni klik paginacije; URL={self.last_url}")
+            driver.execute_script("arguments[0].click()", element)
+
     def _walk_pages(self, driver, site, config, start_url, seen_pages, seen_urls):
+        progress = SearchProgress(self.db, site, self.name, start_url, config,
+                                  self.full_scan, known_urls=self.known_urls)
+        self._log(site, f"poznatih={len(progress.known)}; incremental={progress.incremental}; query={start_url}")
         previous = None
         max_pages = int(config.get("max_pages", 100))
         for page_number in range(1, max_pages + 1):
             self._wait_results(driver, site, config, previous)
+            page_url = driver.current_url
             time.sleep(float(self.settings.get("page_wait_seconds", 2)))
             records = []
             for element in driver.find_elements(By.CSS_SELECTOR, config["result_link_css"]):
@@ -232,30 +259,40 @@ class SeleniumInternalSearchProvider:
             self._log(site, f"strana {page_number}: {len(records)} kandidata; URL={driver.current_url}")
             if not signature:
                 self._log(site, "status=empty_results; kraj")
+                progress.complete()
                 return
             if signature in seen_pages:
                 self._log(site, f"status=repeated_page; kraj; URL={driver.current_url}")
                 return
             seen_pages.add(signature)
             counts = Counter()
+            eligible = []
             for href, anchor_text, title, context in records:
                 status = self._candidate_status(
                     href, f"{href} {anchor_text} {title} {context}", site, config, seen_urls
                 )
                 counts[status] += 1
+                if status in {"accepted", "existing", "duplicate"}:
+                    eligible.append(href)
+                if status == "existing":
+                    self.existing_count += 1
+                    seen_urls.add(canonicalize_url(href))
                 self._log(site, f"kandidat status={status} strana={page_number} URL={href}")
                 if status == "accepted":
                     seen_urls.add(canonicalize_url(href))
                     yield DiscoveredURL(
                         url=href, site_id=site["id"], discovered_by=self.name, query=start_url,
                         metadata={"title": anchor_text or title, "search_result_text": context,
-                                  "search_page_url": driver.current_url,
+                                  "search_page_url": page_url,
                                   "search_page_number": page_number,
                                   "trusted_internal_search": config.get("trust_search_results", True)},
                     )
             self._log(site, f"strana={page_number} završena; " + "; ".join(
                 f"{key}={value}" for key, value in sorted(counts.items())
             ))
+            if progress.should_stop(eligible):
+                self._log(site, f"status=known_pages; kraj; uzastopnih={progress.streak}; URL={page_url}")
+                return
             if page_number == max_pages:
                 self._log(site, f"status=max_pages; limit={max_pages}; URL={driver.current_url}")
                 return
@@ -272,7 +309,7 @@ class SeleniumInternalSearchProvider:
                     self._log(site, f"status=no_next_cursor; kraj GSC; URL={driver.current_url}")
                     return
                 self._log(site, f"GSC klik strana={page_number + 1}; URL={driver.current_url}")
-                next_elements[0].click()
+                self._click(driver, site, next_elements[0])
             elif mode == "infinite_scroll":
                 self._log(site, f"akcija=scroll; URL={driver.current_url}")
                 driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
@@ -284,10 +321,11 @@ class SeleniumInternalSearchProvider:
                         self._navigate(driver, site, urljoin(driver.current_url, next_url))
                     else:
                         self._log(site, f"akcija=next_click; URL={driver.current_url}")
-                        next_elements[0].click()
+                        self._click(driver, site, next_elements[0])
                 elif config.get("page_url_template") and not config.get("require_next_link", False):
                     next_page = page_number + int(config.get("page_template_offset", 1))
                     self._navigate(driver, site, config["page_url_template"].format(page=next_page))
                 else:
                     self._log(site, f"status=no_next_link; kraj; URL={driver.current_url}")
+                    progress.complete()
                     return
