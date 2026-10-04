@@ -1,30 +1,32 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import gzip
 import hashlib
 import json
 import shutil
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from time import perf_counter
 from urllib.parse import urlsplit
 
-from bs4 import BeautifulSoup
 import httpx
+from bs4 import BeautifulSoup
 
+from .article_adapters import extract_article
 from .config import env, load_config
 from .database import ArchiveDB
 from .downloader import Downloader
 from .http import PoliteClient
 from .importer import import_urls
+from .logging_utils import elapsed, log
 from .providers import SitemapProvider
-from .providers.selenium_search import SeleniumInternalSearchProvider
-from .providers.wordpress_search import WordPressSearchProvider
-from .providers.google_site_search import GoogleSiteSearchProvider
-from .providers.sitemap_content import SitemapContentProvider
 from .providers.duckduckgo_site_search import DuckDuckGoSiteSearchProvider
-from .article_adapters import extract_article
+from .providers.google_site_search import GoogleSiteSearchProvider
+from .providers.selenium_search import SeleniumInternalSearchProvider
+from .providers.sitemap_content import SitemapContentProvider
+from .providers.wordpress_search import WordPressSearchProvider
 from .special import PretrazivaDiscoverer, SpecialDownloader, SpecialRepository
 
 
@@ -112,7 +114,10 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 site["wordpress_search"]["max_pages"] = args.max_pages
                 site["google_max_pages"] = args.max_pages
             for provider in providers:
-                print(f"[{site['id']}] discovery: {provider.name}", flush=True)
+                provider_started = perf_counter()
+                if provider.name == "google_site_search":
+                    provider.known_urls = db.known_urls(site['id'])
+                log(f"[{site['id']}] discovery: {provider.name}", flush=True)
                 provider_seen = 0
                 try:
                     for item in provider.discover(site):
@@ -120,35 +125,43 @@ def cmd_discover(args: argparse.Namespace) -> int:
                         seen += 1
                         is_new = db.add(item)
                         added += int(is_new)
-                        print(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
+                        log(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
                               f"provider={provider.name} URL={item.url}", flush=True)
                 except Exception as exc:
-                    print(f"[{site['id']}] {provider.name} greška: {exc}", file=sys.stderr)
+                    log(f"[{site['id']}] {provider.name} greška: {exc}", file=sys.stderr)
+                log(f"[{site['id']}] provider={provider.name}; kraj operacije; {elapsed(provider_started)}")
                 if isinstance(getattr(provider, 'existing_count', None), int):
-                    print(f"[{site['id']}] provider={provider.name}; "
+                    log(f"[{site['id']}] provider={provider.name}; "
                           f"novih_kandidata={provider_seen}; poznatih_preskočeno={provider.existing_count}",
                           flush=True)
+                if getattr(provider, 'stop_site', False) is True:
+                    break
                 if (provider.name == "selenium_internal_search"
                         and (site.get("google_supplement")
                              or (provider_seen == 0 and not provider.existing_count
                                  and site.get("google_fallback")))
                         and "google" not in args.provider):
                     fallback = GoogleSiteSearchProvider(settings)
+                    fallback.known_urls = db.known_urls(site['id'])
                     reason = "dopuna interne pretrage" if site.get("google_supplement") else "interna pretraga bez kandidata"
-                    print(f"[{site['id']}] {reason}; google_site_search", flush=True)
+                    log(f"[{site['id']}] {reason}; google_site_search", flush=True)
+                    fallback_started = perf_counter()
                     try:
                         for item in fallback.discover(site):
                             seen += 1
                             is_new = db.add(item)
                             added += int(is_new)
-                            print(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
+                            log(f"[{site['id']}] baza status={'new' if is_new else 'existing'} "
                                   f"provider={fallback.name} URL={item.url}", flush=True)
                     except Exception as exc:
-                        print(f"[{site['id']}] Google fallback nije uspeo: {exc}", file=sys.stderr)
+                        log(f"[{site['id']}] Google fallback nije uspeo: {exc}", file=sys.stderr)
+                    log(f"[{site['id']}] provider={fallback.name}; {elapsed(fallback_started)}")
+                    if getattr(fallback, 'stop_site', False) is True:
+                        break
     finally:
         db.close()
         client.close()
-    print(f"Pronađeno: {seen}; novo u bazi: {added}")
+    log(f"Pronađeno: {seen}; novo u bazi: {added}")
     return 0
 
 
@@ -168,7 +181,7 @@ def cmd_download(args: argparse.Namespace) -> int:
         downloader.close()
         db.close()
         client.close()
-    print("; ".join(f"{name}={count}" for name, count in counts.items()))
+    log("; ".join(f"{name}={count}" for name, count in counts.items()))
     return 0
 
 
@@ -698,7 +711,7 @@ def build_parser() -> argparse.ArgumentParser:
                           required=True)
     discover.add_argument("--site", action="append", help="ID sajta; izostaviti za sve")
     discover.add_argument("--full-scan", action="store_true",
-                          help="Obiđi sve stranice i kada postoje ranije poznati URL-ovi")
+                          help="Isključi hronološko skraćivanje; stranica samo sa duplikatima i dalje završava sajt")
     discover.add_argument("--newest-first", action="store_true",
                           help="Potvrđen hronološki redosled interne pretrage; ne važi za Google CSE")
     discover.add_argument(

@@ -20,6 +20,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
 from ..keywords import contains_keyword
+from ..logging_utils import elapsed, log
 from ..models import DiscoveredURL
 from ..urltools import canonicalize_url, host_matches, is_non_article_url
 from .search_progress import SearchProgress
@@ -33,6 +34,7 @@ class SeleniumInternalSearchProvider:
         self.full_scan = full_scan
         self.known_urls = set()
         self.existing_count = 0
+        self.stop_site = False
         self.last_url = ""
         self.settings = settings.get("selenium", {})
         self.keywords = settings.get("keywords", ["Petrovaradin", "Петроварадин"])
@@ -40,7 +42,15 @@ class SeleniumInternalSearchProvider:
 
     @staticmethod
     def _log(site, message):
-        print(f"  [{site['id']}] {message}", flush=True)
+        log(f"  [{site['id']}] {message}")
+
+    def _stop_duplicates(self, site, statuses, page, url):
+        if statuses and all(status in {'existing', 'duplicate'} for status in statuses):
+            self.stop_site = True
+            self._log(site, f"status=all_duplicates; strana={page}; "
+                      f"svi URL-ovi rezultata su duplikati; prelazim na sledeći sajt; URL={url}")
+            return True
+        return False
 
     def _driver(self, config: dict):
         browser = self.settings.get("browser", "chrome").lower()
@@ -97,18 +107,20 @@ class SeleniumInternalSearchProvider:
         return variants
 
     def _navigate(self, driver, site, url):
+        started = time.perf_counter()
         self.last_url = url
         self._log(site, f"otvaranje URL={url}")
         try:
             driver.get(url)
         except WebDriverException as exc:
-            self._log(site, f"status=navigation_error URL={url}; {exc.msg}")
+            self._log(site, f"status=navigation_error URL={url}; {elapsed(started)}; {exc.msg}")
             raise
-        self._log(site, f"status=loaded URL={driver.current_url}")
+        self._log(site, f"status=loaded URL={driver.current_url}; {elapsed(started)}")
         if "too many requests" in driver.title.casefold():
             raise WebDriverException(f"status=rate_limited; HTTP 429 stranica; URL={url}")
 
     def discover(self, site: dict) -> Iterator[DiscoveredURL]:
+        self.stop_site = False
         self.existing_count = 0
         self.known_urls = self.db.known_urls(site['id']) if self.db is not None else set()
         config = site.get("internal_search", {})
@@ -118,6 +130,7 @@ class SeleniumInternalSearchProvider:
         if not variants:
             return
         driver, temporary_profile = None, None
+        browser_started = time.perf_counter()
         self._log(site, f"browser=start; planirani URL={variants[0][0]}; "
                   f"profil={config.get('user_data_dir', 'automatski')}")
         try:
@@ -131,6 +144,7 @@ class SeleniumInternalSearchProvider:
                 temporary_profile = TemporaryDirectory(prefix="archive-chrome-")
                 self._log(site, "browser=retry; novi privremeni profil; postojeći profil ostaje sačuvan")
                 driver = self._driver(dict(config, user_data_dir=temporary_profile.name))
+            self._log(site, f"browser=ready; {elapsed(browser_started)}")
             seen_urls = set()
             if config.get("bootstrap_url"):
                 self._navigate(driver, site, config["bootstrap_url"])
@@ -141,7 +155,8 @@ class SeleniumInternalSearchProvider:
                     stop_reason = yield from self._walk_pages(
                         driver, site, variant_config, start_url, set(), seen_urls
                     )
-                    if stop_reason == "repeated_page":
+                    if stop_reason in {"repeated_page", "all_duplicates"}:
+                        self.stop_site = True
                         return
                 except WebDriverException as exc:
                     self._log(site, f"status=search_error query={start_url}; "
@@ -236,6 +251,7 @@ class SeleniumInternalSearchProvider:
         previous = None
         max_pages = int(config.get("max_pages", 100))
         for page_number in range(1, max_pages + 1):
+            page_started = time.perf_counter()
             self._wait_results(driver, site, config, previous)
             page_url = driver.current_url
             time.sleep(float(self.settings.get("page_wait_seconds", 2)))
@@ -293,9 +309,13 @@ class SeleniumInternalSearchProvider:
                                   "search_page_number": page_number,
                                   "trusted_internal_search": config.get("trust_search_results", True)},
                     )
-            self._log(site, f"strana={page_number} završena; " + "; ".join(
+            self._log(site, f"strana={page_number} završena; {elapsed(page_started)}; " + "; ".join(
                 f"{key}={value}" for key, value in sorted(counts.items())
             ))
+            statuses = [status for status, count in counts.items()
+                        if count and status in {'accepted', 'existing', 'duplicate'}]
+            if self._stop_duplicates(site, statuses, page_number, page_url):
+                return "all_duplicates"
             if progress.should_stop(eligible):
                 self._log(site, f"status=known_pages; kraj; uzastopnih={progress.streak}; URL={page_url}")
                 return

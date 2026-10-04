@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from ..http import PoliteClient
 from ..keywords import contains_keyword
+from ..logging_utils import log
 from ..models import DiscoveredURL
 from ..urltools import canonicalize_url, host_matches, is_non_article_url
 
@@ -37,7 +38,7 @@ class DuckDuckGoSiteSearchProvider:
                 response = self.client.get(search_url)
                 response.raise_for_status()
             except Exception as exc:
-                print(f"  [{site['id']}] DuckDuckGo preskočen: {exc}", flush=True)
+                log(f"  [{site['id']}] DuckDuckGo preskočen: {exc}", flush=True)
                 continue
             soup = BeautifulSoup(response.content, "html.parser")
             for result in soup.select(".result"):

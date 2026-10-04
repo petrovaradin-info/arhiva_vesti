@@ -6,6 +6,8 @@ from collections import defaultdict
 
 import httpx
 
+from .logging_utils import elapsed, log
+
 
 class PoliteClient:
     def __init__(self, settings: dict, user_agent: str):
@@ -72,6 +74,14 @@ class PoliteClient:
         return self.robots[root].can_fetch(self.client.headers["User-Agent"], url)
 
     def get(self, url: str, max_bytes: int | None = None) -> httpx.Response:
+        started = time.perf_counter()
+        log(f"operacija=http_get; status=start; URL={url}")
+        try:
+            return self._get_limited(url, max_bytes)
+        finally:
+            log(f"operacija=http_get; status=finished; {elapsed(started)}; URL={url}")
+
+    def _get_limited(self, url: str, max_bytes: int | None = None) -> httpx.Response:
         host = httpx.URL(url).host or ""
         self._wait(host)
         response = self._request(url)

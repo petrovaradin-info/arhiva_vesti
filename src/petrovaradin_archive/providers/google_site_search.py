@@ -19,6 +19,8 @@ class GoogleSiteSearchProvider:
     name = "google_site_search"
 
     def __init__(self, settings: dict):
+        self.known_urls = set()
+        self.stop_site = False
         self.settings = settings.get("google_search", {})
         self.selenium = settings.get("selenium", {})
         self.keywords = settings.get("keywords", ["Petrovaradin", "Петроварадин"])
@@ -37,10 +39,12 @@ class GoogleSiteSearchProvider:
         return driver
 
     def discover(self, site: dict) -> Iterator[DiscoveredURL]:
+        self.stop_site = False
         domain = site.get("google_domain") or site["domains"][0]
         max_pages = int(site.get("google_max_pages", self.settings.get("max_pages", 30)))
         wait = float(self.settings.get("page_wait_seconds", 2))
         audit = SeleniumInternalSearchProvider({"keywords": self.keywords})
+        audit.known_urls = self.known_urls
         audit._log(site, f"browser=start provider={self.name}; domen={domain}")
         driver = self._driver()
         seen: set[str] = set()
@@ -56,6 +60,7 @@ class GoogleSiteSearchProvider:
                             or driver.find_elements(By.CSS_SELECTOR, "form[action*='sorry'], #captcha-form")):
                         raise TimeoutException(f"status=challenge; URL={driver.current_url}")
                     results = []
+                    statuses = []
                     page_urls = set()
                     for element in driver.find_elements(By.CSS_SELECTOR, "a[href]"):
                         href = element.get_attribute("href") or ""
@@ -73,12 +78,17 @@ class GoogleSiteSearchProvider:
                         )
                         audit._log(site, f"provider={self.name} strana={page + 1} "
                                    f"status={status} URL={href}")
+                        if status in {'accepted', 'existing', 'duplicate'}:
+                            statuses.append(status)
                         if status != "accepted":
                             continue
                         results.append((canonical, href, element.text.strip(), context.strip()))
                     signature = tuple(sorted(page_urls))
                     audit._log(site, f"provider={self.name} strana={page + 1} "
                                f"kandidata={len(results)} URL={search_url}")
+                    if audit._stop_duplicates(site, statuses, page + 1, search_url):
+                        self.stop_site = True
+                        return
                     if not signature or signature == previous_signature:
                         break
                     previous_signature = signature

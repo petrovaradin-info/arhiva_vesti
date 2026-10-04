@@ -11,11 +11,12 @@ import httpx
 from bs4 import BeautifulSoup
 from selenium import webdriver
 
-from .database import ArchiveDB
-from .content import content_kind, decode_html, extract_text, safe_extension, url_extension
-from .http import PoliteClient
-from .urltools import host_matches
 from .article_adapters import extract_article
+from .content import content_kind, decode_html, extract_text, safe_extension, url_extension
+from .database import ArchiveDB
+from .http import PoliteClient
+from .logging_utils import log
+from .urltools import host_matches
 
 
 class Downloader:
@@ -72,7 +73,7 @@ class Downloader:
         rows = self.db.pending(limit, site_id)
         total = len(rows)
         run_started = time.monotonic()
-        print(
+        log(
             f"Download red spreman: {total} URL-ova"
             + (f" za izvor [{site_id}]" if site_id else " iz svih izvora"),
             flush=True,
@@ -82,7 +83,7 @@ class Downloader:
         for position, row in enumerate(rows, 1):
             item_started = time.monotonic()
             percent = position / total * 100
-            print(
+            log(
                 f"[{position}/{total} | {percent:5.1f}%] "
                 f"[{row['site_id']}] URL #{row['id']}\n"
                 f"  {row['url']}",
@@ -150,7 +151,7 @@ class Downloader:
                 if domains and not host_matches(final_url, domains):
                     self.db.mark_bad_redirect(row["id"], final_url)
                     counts["bad_redirect"] += 1
-                    print(f"  -> bad_redirect: {final_url}", flush=True)
+                    log(f"  -> bad_redirect: {final_url}", flush=True)
                     continue
                 discovery_context = " ".join((
                     row["url"], row["query"] or "", row["metadata_json"] or ""
@@ -171,7 +172,7 @@ class Downloader:
                         final_url=final_url, content_type=content_type,
                     )
                     counts["no_keyword"] += 1
-                    print(
+                    log(
                         f"  -> no_keyword ({strategy}, {time.monotonic()-item_started:.1f}s)",
                         flush=True,
                     )
@@ -215,7 +216,7 @@ class Downloader:
                 saved_status = (
                     "awaiting_review" if source and source["manual_review"] else "archived"
                 )
-                print(
+                log(
                     f"  -> {saved_status} ({strategy}, {kind}, {len(content)} B, "
                     f"{time.monotonic()-item_started:.1f}s)",
                     flush=True,
@@ -225,7 +226,7 @@ class Downloader:
                 if isinstance(exc, PermissionError):
                     self.db.mark_blocked(row["id"], str(exc))
                     counts["manual_capture_needed"] += 1
-                    print(f"  -> manual_capture_needed: {exc}", flush=True)
+                    log(f"  -> manual_capture_needed: {exc}", flush=True)
                     continue
                 status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
                 permanent = status in {404, 410}
@@ -233,11 +234,11 @@ class Downloader:
                 self.db.mark_failed(row["id"], str(exc), retry, status)
                 result = "retry" if retry else "unavailable"
                 counts[result] += 1
-                print(
+                log(
                     f"  -> {result} ({time.monotonic()-item_started:.1f}s): {exc}",
                     flush=True,
                 )
-        print(
+        log(
             f"Download red završen za {time.monotonic()-run_started:.1f}s: "
             + "; ".join(f"{name}={count}" for name, count in counts.items()),
             flush=True,

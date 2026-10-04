@@ -14,11 +14,13 @@ class HTTPInternalSearchProvider(SeleniumInternalSearchProvider):
 
     name = "http_internal_search"
 
-    def __init__(self, client, settings):
-        super().__init__(settings)
+    def __init__(self, client, settings, db=None, full_scan=False):
+        super().__init__(settings, db, full_scan)
         self.client = client
 
     def discover(self, site):
+        self.stop_site = False
+        self.known_urls = self.db.known_urls(site['id']) if self.db is not None else set()
         config = site.get("internal_search", {})
         if not config.get("enabled"):
             return
@@ -52,9 +54,11 @@ class HTTPInternalSearchProvider(SeleniumInternalSearchProvider):
                         f"status=results_missing; URL={response.url}; selector={variant['result_link_css']}"
                     )
                 if signature in seen_pages:
-                    self._log(site, f"status=repeated_page; URL={response.url}")
-                    break
+                    self.stop_site = True
+                    self._log(site, f"status=repeated_page; prelazim na sledeći sajt; URL={response.url}")
+                    return
                 seen_pages.add(signature)
+                statuses = []
                 for a in records:
                     if not a.get("href"):
                         continue
@@ -66,6 +70,8 @@ class HTTPInternalSearchProvider(SeleniumInternalSearchProvider):
                         href, f"{href} {title} {context}", site, variant, seen_urls
                     )
                     self._log(site, f"kandidat status={status} strana={page} URL={href}")
+                    if status in {'accepted', 'existing', 'duplicate'}:
+                        statuses.append(status)
                     if status != "accepted":
                         continue
                     seen_urls.add(canonicalize_url(href))
@@ -82,6 +88,8 @@ class HTTPInternalSearchProvider(SeleniumInternalSearchProvider):
                             "trusted_internal_search": variant.get("trust_search_results", True),
                         },
                     )
+                if self._stop_duplicates(site, statuses, page, str(response.url)):
+                    return
                 if page == max_pages:
                     self._log(site, f"status=max_pages; limit={max_pages}; URL={response.url}")
                     break

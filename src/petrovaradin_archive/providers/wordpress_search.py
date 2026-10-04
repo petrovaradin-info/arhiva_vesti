@@ -1,8 +1,10 @@
 from html import unescape
+from time import perf_counter
 from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup
 
+from ..logging_utils import elapsed
 from ..models import DiscoveredURL
 from ..urltools import canonicalize_url, host_matches
 from .search_progress import SearchProgress
@@ -19,6 +21,7 @@ class WordPressSearchProvider(SeleniumInternalSearchProvider):
         self.client = client
 
     def discover(self, site):
+        self.stop_site = False
         config = site.get('wordpress_search', {})
         endpoint = config.get('endpoint')
         if not endpoint:
@@ -38,6 +41,7 @@ class WordPressSearchProvider(SeleniumInternalSearchProvider):
             max_pages = int(config.get('max_pages', 200))
             per_page = min(100, max(1, int(config.get('per_page', 100))))
             for page in range(1, max_pages + 1):
+                page_started = perf_counter()
                 url = query + '&' + urlencode({
                     'page': page, 'per_page': per_page, '_fields': 'id,link,date,title,excerpt',
                 })
@@ -59,9 +63,12 @@ class WordPressSearchProvider(SeleniumInternalSearchProvider):
                     raise ValueError(f'status=invalid_api_response; URL={url}')
                 signature = tuple(sorted(post['link'] for post in posts))
                 if posts and signature in signatures:
-                    raise ValueError(f'status=repeated_page; URL={url}')
+                    self.stop_site = True
+                    self._log(site, f'status=repeated_page; prelazim na sledeći sajt; URL={url}')
+                    return
                 signatures.add(signature)
                 eligible = []
+                statuses = []
                 for post in posts:
                     href = post['link']
                     title = BeautifulSoup(unescape(post.get('title', {}).get('rendered', '')), 'html.parser').get_text(' ', strip=True)
@@ -69,6 +76,7 @@ class WordPressSearchProvider(SeleniumInternalSearchProvider):
                     self._log(site, f'kandidat status={status}; strana={page}; URL={href}')
                     if status in {'accepted', 'existing', 'duplicate'}:
                         eligible.append(href)
+                        statuses.append(status)
                     if status == 'existing':
                         self.existing_count += 1
                         seen.add(canonicalize_url(href))
@@ -81,7 +89,9 @@ class WordPressSearchProvider(SeleniumInternalSearchProvider):
                                   'search_page_url': url, 'search_page_number': page,
                                   'trusted_internal_search': True},
                     )
-                self._log(site, f'strana={page}; kandidata={len(posts)}; URL={url}')
+                self._log(site, f'strana={page}; kandidata={len(posts)}; {elapsed(page_started)}; URL={url}')
+                if self._stop_duplicates(site, statuses, page, url):
+                    return
                 total_pages = response.headers.get('X-WP-TotalPages')
                 if not posts or (total_pages is not None and page >= int(total_pages)):
                     progress.complete()
