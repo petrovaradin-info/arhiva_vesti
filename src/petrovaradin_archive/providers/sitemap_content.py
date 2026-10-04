@@ -10,7 +10,7 @@ from ..database import ArchiveDB
 from ..http import PoliteClient
 from ..keywords import contains_keyword
 from ..models import DiscoveredURL
-from ..urltools import host_matches, is_non_article_url
+from ..urltools import canonicalize_url, host_matches, is_non_article_url
 
 
 class SitemapContentProvider:
@@ -27,6 +27,7 @@ class SitemapContentProvider:
         self.max_sitemaps = int(config.get("max_sitemaps_per_site", 100))
 
     def discover(self, site: dict) -> Iterator[DiscoveredURL]:
+        known_urls = self.db.known_urls(site['id'])
         queue = list(site.get("sitemaps", []))
         seen_sitemaps: set[str] = set()
         checked = 0
@@ -53,6 +54,9 @@ class SitemapContentProvider:
             for url in locs:
                 if checked >= self.max_urls:
                     break
+                if canonicalize_url(url) in known_urls:
+                    print(f"  [{site['id']}] status=existing; bez otvaranja; URL={url}", flush=True)
+                    continue
                 if (not host_matches(url, site["domains"])
                         or is_non_article_url(url, site.get("exclude_url_patterns", []))
                         or self.db.was_content_scanned(site["id"], url)):
@@ -69,6 +73,7 @@ class SitemapContentProvider:
                     matched = contains_keyword(f"{url} {text}", self.keywords)
                     self.db.record_content_scan(site["id"], url, matched)
                     if matched:
+                        known_urls.add(canonicalize_url(url))
                         yield DiscoveredURL(
                             url=url, site_id=site["id"], discovered_by=self.name,
                             query=sitemap_url,

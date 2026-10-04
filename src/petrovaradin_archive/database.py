@@ -11,6 +11,10 @@ from .article_adapters import content_fingerprint, hamming_distance, simhash
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
+CREATE TABLE IF NOT EXISTS search_coverage (
+  search_key TEXT PRIMARY KEY,
+  completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS urls (
   id INTEGER PRIMARY KEY,
   url TEXT NOT NULL,
@@ -290,6 +294,22 @@ class ArchiveDB:
         )
         self.connection.commit()
         return result
+
+    def known_urls(self, site_id: str) -> set[str]:
+        return {row[0] for row in self.connection.execute(
+            "SELECT canonical_url FROM urls WHERE site_id=?", (site_id,)
+        )}
+
+    def search_completed(self, key: str) -> bool:
+        return self.connection.execute(
+            "SELECT 1 FROM search_coverage WHERE search_key=?", (key,)
+        ).fetchone() is not None
+
+    def mark_search_completed(self, key: str) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO search_coverage(search_key) VALUES (?)", (key,)
+        )
+        self.connection.commit()
 
     def add(self, item: DiscoveredURL) -> bool:
         canonical = canonicalize_url(item.url)
