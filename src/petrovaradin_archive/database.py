@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS scan_checks (
 class ArchiveDB:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path)
+        self.connection = sqlite3.connect(path, timeout=60)
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(SCHEMA)
         self._migrate()
@@ -203,7 +203,7 @@ class ArchiveDB:
         self.connection.commit()
 
     def source_rows(self) -> list[sqlite3.Row]:
-        return list(self.connection.execute("SELECT * FROM sources ORDER BY id"))
+        return list(self.connection.execute("SELECT * FROM sources ORDER BY manual_review, id"))
 
     def coverage_rows(self) -> list[sqlite3.Row]:
         return list(self.connection.execute(
@@ -221,7 +221,7 @@ class ArchiveDB:
                LEFT JOIN urls u ON u.site_id=s.id
                GROUP BY s.id, s.name, s.enabled, s.manual_review,
                         a.status, a.http_status, a.error
-               ORDER BY s.id"""
+               ORDER BY s.manual_review, s.id"""
         ))
 
     def source(self, source_id: str) -> sqlite3.Row | None:
@@ -334,15 +334,13 @@ class ArchiveDB:
         return cursor.rowcount == 1
 
     def pending(self, limit: int, site_id: str | None = None) -> list[sqlite3.Row]:
-        if site_id:
-            return list(self.connection.execute(
-                """SELECT * FROM urls WHERE download_status IN ('pending', 'retry')
-                AND site_id=? ORDER BY id LIMIT ?""",
-                (site_id, limit),
-            ))
+        site_filter = " AND u.site_id=?" if site_id else ""
+        params = [site_id, limit] if site_id else [limit]
         return list(self.connection.execute(
-            "SELECT * FROM urls WHERE download_status IN ('pending', 'retry') ORDER BY id LIMIT ?",
-            (limit,),
+            """SELECT u.* FROM urls u LEFT JOIN sources s ON s.id=u.site_id
+               WHERE u.download_status IN ('pending', 'retry')""" + site_filter +
+            " ORDER BY COALESCE(s.manual_review, u.requires_manual_review), u.id LIMIT ?",
+            params,
         ))
 
     def mark_archived(self, row_id: int, **values: object) -> None:
@@ -362,7 +360,13 @@ class ArchiveDB:
         )
         self.connection.commit()
 
-    def store_article_analysis(self, row_id: int, *, title: str | None, body_text: str,
+    def store_article_analysis(self, row_id: int, **values: object) -> int:
+        # Serialize duplicate detection and its write across worker connections.
+        with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            return self._store_article_analysis(row_id, **values)
+
+    def _store_article_analysis(self, row_id: int, *, title: str | None, body_text: str,
                                published_at: str | None, canonical_url: str | None,
                                original_source_url: str | None, adapter_name: str,
                                image_url: str | None = None) -> int:
@@ -420,7 +424,7 @@ class ArchiveDB:
             """SELECT u.*, s.config_json FROM urls u JOIN sources s ON s.id=u.site_id
                WHERE u.download_status IN ('archived','awaiting_review')
                AND u.media_kind='html' AND u.archive_path IS NOT NULL
-               AND u.article_text IS NULL""" + site_filter + " ORDER BY u.id LIMIT ?",
+               AND u.article_text IS NULL""" + site_filter + " ORDER BY COALESCE(s.manual_review, u.requires_manual_review), u.id LIMIT ?",
             parameters,
         ))
 
@@ -435,7 +439,7 @@ class ArchiveDB:
         parameters.append(limit)
         return list(self.connection.execute(
             """SELECT id, article_title, article_text FROM urls
-               WHERE article_text IS NOT NULL""" + site_filter + " ORDER BY id LIMIT ?",
+               WHERE article_text IS NOT NULL""" + site_filter + " ORDER BY COALESCE((SELECT manual_review FROM sources WHERE sources.id=urls.site_id), requires_manual_review), id LIMIT ?",
             parameters,
         ))
 
@@ -605,12 +609,12 @@ class ArchiveDB:
         if status:
             return list(self.connection.execute(
                 """SELECT a.*, u.site_id FROM assets a JOIN urls u ON u.id=a.url_id
-                WHERE a.status=? ORDER BY a.id DESC LIMIT ?""",
+                WHERE a.status=? ORDER BY COALESCE((SELECT manual_review FROM sources WHERE sources.id=u.site_id), u.requires_manual_review), a.id DESC LIMIT ?""",
                 (status, limit),
             ))
         return list(self.connection.execute(
             """SELECT a.*, u.site_id FROM assets a JOIN urls u ON u.id=a.url_id
-            ORDER BY a.id DESC LIMIT ?""",
+            ORDER BY COALESCE((SELECT manual_review FROM sources WHERE sources.id=u.site_id), u.requires_manual_review), a.id DESC LIMIT ?""",
             (limit,),
         ))
 
@@ -627,7 +631,7 @@ class ArchiveDB:
         params.append(limit)
         return list(self.connection.execute(
             f"""SELECT a.*, u.site_id FROM assets a JOIN urls u ON u.id=a.url_id
-            WHERE {' AND '.join(clauses)} ORDER BY a.id LIMIT ?""",
+            WHERE {' AND '.join(clauses)} ORDER BY COALESCE((SELECT manual_review FROM sources WHERE sources.id=u.site_id), u.requires_manual_review), a.id LIMIT ?""",
             params,
         ))
 
@@ -754,7 +758,7 @@ class ArchiveDB:
 
     def stats(self) -> list[sqlite3.Row]:
         return list(self.connection.execute(
-            "SELECT site_id, download_status, COUNT(*) count FROM urls GROUP BY site_id, download_status"
+            "SELECT site_id, download_status, COUNT(*) count FROM urls GROUP BY site_id, download_status ORDER BY COALESCE((SELECT manual_review FROM sources WHERE sources.id=urls.site_id), requires_manual_review), site_id, download_status"
         ))
 
     def counts(self) -> dict[str, int]:
@@ -778,12 +782,12 @@ class ArchiveDB:
         if status:
             return list(self.connection.execute(
                 """SELECT id, site_id, url, download_status, http_status,
-                archive_path, error FROM urls WHERE download_status=? ORDER BY id LIMIT ?""",
+                archive_path, error FROM urls WHERE download_status=? ORDER BY COALESCE((SELECT manual_review FROM sources WHERE sources.id=urls.site_id), requires_manual_review), id LIMIT ?""",
                 (status, limit),
             ))
         return list(self.connection.execute(
             """SELECT id, site_id, url, download_status, http_status,
-            archive_path, error FROM urls ORDER BY id LIMIT ?""",
+            archive_path, error FROM urls ORDER BY COALESCE((SELECT manual_review FROM sources WHERE sources.id=urls.site_id), requires_manual_review), id LIMIT ?""",
             (limit,),
         ))
 

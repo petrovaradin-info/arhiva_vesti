@@ -64,7 +64,8 @@ def choose_sites(sites: list[dict], site_ids: list[str] | None, db: ArchiveDB) -
             merged["manual_review"] = bool(source["manual_review"])
             merged["blocklist"] = json.loads(source["blocklist_json"] or "[]")
         enabled.append(merged)
-    enabled.sort(key=lambda site: bool(site.get("run_last", False)))
+    enabled.sort(key=lambda site: (bool(site.get("manual_review", False)),
+                                   bool(site.get("run_last", False))))
     if not site_ids:
         return enabled
     selected = [site for site in enabled if site["id"] in site_ids]
@@ -170,19 +171,13 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
 def cmd_download(args: argparse.Namespace) -> int:
     root, settings, sites, db, client = context(args.config_dir)
-    downloader = Downloader(
-        db, client, resolve_path(root, settings["html_dir"]), settings.get("keywords", []),
-        int(settings.get("request", {}).get("max_retries", 3)),
-        settings.get("selenium", {}),
-        resolve_path(root, settings.get("file_dir", "data/files")),
-        resolve_path(root, settings.get("text_dir", "data/text")),
-        settings.get("archive", {}),
-        settings.get("candidate_keywords", []),
-    )
+    from .parallel_download import download_lock, run_download
+
     try:
-        counts = downloader.run(args.limit, args.site, args.mode)
+        with download_lock(resolve_path(root, settings["database"])):
+            counts = run_download(root, settings, db, args.limit, args.site,
+                                  args.mode, args.workers)
     finally:
-        downloader.close()
         db.close()
         client.close()
     log("; ".join(f"{name}={count}" for name, count in counts.items()))
@@ -613,7 +608,9 @@ def cmd_audit_sources(args: argparse.Namespace) -> int:
     finally:
         db.close()
         client.close()
-    for source_id, target, status, http_status, final_url, error in sorted(results):
+    source_order = {site["id"]: index for index, site in enumerate(selected)}
+    for source_id, target, status, http_status, final_url, error in sorted(
+            results, key=lambda row: source_order[row[0]]):
         detail = f"HTTP {http_status}" if http_status is not None else (error or "")
         print(f"{source_id:22} {status:12} {detail}")
     totals = {status: sum(row[2] == status for row in results)
@@ -784,6 +781,13 @@ def cmd_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("Vrednost mora biti najmanje 1")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="petrovaradin-archive")
     parser.add_argument("--config-dir", type=Path, help="Alternativni config direktorijum")
@@ -809,6 +813,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     download = sub.add_parser("download", help="Preuzima pending HTML stranice")
     download.add_argument("--limit", type=int, default=100)
+    download.add_argument("--workers", type=positive_int, default=1,
+                          help="Broj paralelnih preuzimanja različitih izvora (default: 1)")
     download.add_argument("--site", help="Obrađuje samo jedan site ID")
     download.add_argument(
         "--mode", choices=["selenium", "http", "hybrid"], default="selenium",
@@ -980,6 +986,9 @@ def build_parser() -> argparse.ArgumentParser:
     manual_import.add_argument("id", type=int)
     manual_import.add_argument("path", type=Path)
     manual_import.set_defaults(func=cmd_manual_import)
+
+    from .relevance import register
+    register(sub)
 
     return parser
 
