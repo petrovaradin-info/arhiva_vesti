@@ -68,12 +68,12 @@ class Downloader:
             self.driver = None
 
     def run(self, limit: int = 100, site_id: str | None = None,
-            mode: str = "selenium") -> dict[str, int]:
+            mode: str = "selenium", *, rows=None, stop_event=None) -> dict[str, int]:
         counts = {name: 0 for name in (
             "archived", "no_keyword", "manual_capture_needed", "bad_redirect",
             "retry", "unavailable"
         )}
-        rows = self.db.pending(limit, site_id)
+        rows = self.db.pending(limit, site_id) if rows is None else rows
         total = len(rows)
         run_started = time.monotonic()
         log(
@@ -84,6 +84,8 @@ class Downloader:
         if total == 0:
             return counts
         for position, row in enumerate(rows, 1):
+            if stop_event is not None and stop_event.is_set():
+                break
             item_started = time.monotonic()
             percent = position / total * 100
             log(
