@@ -1,0 +1,66 @@
+{
+  "cins": {
+    "source_url": "https://www.cins.rs/?s=Petrovaradin&tztc=2",
+    "expected_url": "https://www.cins.rs/firma-roberta-cobana-kroz-semu-povezanih-udruzenja-do-budzetskih-para/"
+  },
+  "vijesti_me": {
+    "source_url": "https://www.vijesti.me/pretraga?q=petrovaradin",
+    "expected_url": "https://www.vijesti.me/svijet/balkan/766425/kordon-policije-sprecava-gradjane-novog-sada-da-pozdrave-vucica"
+  },
+  "korzoportal": {
+    "source_url": "https://korzoportal.com/?s=petrovaradin",
+    "expected_url": "https://korzoportal.com/petrovaradinska-bitka-na-danasnji-dan-bogorodica-pobednica-u-petrovaradinskom-podgradju/"
+  },
+  "srbijasport": {
+    "source_url": "https://srbijasport.net/search?q=petrovaradin",
+    "expected_url": "https://srbijasport.net/club/816-petrovaradin/results"
+  },
+  "sremske_novine": {
+    "source_url": "https://www.sremskenovine.co.rs/?s=petrovaradin",
+    "expected_url": "https://www.sremskenovine.co.rs/2026/06/predstavljena-monografija-vojna-bolnica-u-petrovaradinu-1689-2024-dragana-koruge/"
+  },
+  "koreni": {
+    "source_url": "https://www.koreni.rs/?s=petrovaradin",
+    "expected_url": "https://www.koreni.rs/sta-sve-kinezi-grade-u-novom-sadu-planiraju-da-buse-ispod-petrovaradinske-tvrdjave-i-novi-most/"
+  },
+  "kurir": {
+    "source_url": "https://www.kurir.rs/search/1/1?q=petrovaradin",
+    "expected_url": "https://www.kurir.rs/crna-hronika/10048715/uhapsen-osumnjiceni-muskarac-zbog-bacanja-molotovljevog-koktela-na-automobil-u-nvoom-sadu"
+  },
+  "telegraf": {
+    "source_url": "https://www.telegraf.rs/pretraga/?q=petrovaradin",
+    "expected_url": "https://nauka.telegraf.rs/naucne-zanimljivosti/4397522-domace-naucno-resenje-za-fasade-buducnosti"
+  },
+  "informer": {
+    "source_url": "https://informer.rs/rezultati-pretrage?search_parameter=petrovaradin",
+    "expected_url": "https://informer.rs/hronika/vesti/1143339/otmica-novi-sad-petrovaradin"
+  },
+  "blic": {
+    "source_url": "https://www.blic.rs/search?q=petrovaradin",
+    "expected_url": "https://www.blic.rs/vesti/drustvo/vatrogasci-spasili-porodicu-u-novom-sadu-izbio-pozar-zbog-ventilatora-u-kupatilu/067yy1g"
+  },
+  "rts": {
+    "source_url": "https://www.rts.rs/pretraga.html?searchText=Petrovaradin&lang=sr&position=0",
+    "expected_url": "https://www.rts.rs/lat/vesti/drustvo/5940234/dacic-pronadji-me-nestanak-deca-novi-sad-mup.html"
+  },
+  "srbijadanas": {
+    "source_url": "https://www.sd.rs/pretraga/Petrovaradin?page=0",
+    "expected_url": "https://www.sd.rs/vesti/drustvo/evo-kakvo-je-stanje-na-putevima-srbije-oglasila-se-zimska-sluzba-ako-idite-ovim-deonicama-obratite-paznju-2025-12-02"
+  },
+  "sputnik": {
+    "source_url": "https://sputnikportal.rs/search/?query=petrovaradin",
+    "expected_url": "https://sputnikportal.rs/20260610/nove-cene-zeleznickog-prevoza-u-srbiji-od-15-jula-1200194532.html"
+  },
+  "b92": {
+    "source_url": "https://www.b92.net/najnovije-vesti?search=petrovaradin",
+    "expected_url": "https://www.b92.net/putovanja/aktuelno/aktuelno/267882/ocekuje-se-veci-broj-poseta-novom-sadu-tokom-expo-a/vest"
+  },
+  "vesti_online": {
+    "source_url": "https://vesti-online.com/?s=petrovaradin",
+    "expected_url": "https://vesti-online.com/most-tunel-i-zelene-zone-petrovaradin-ulazi-u-veliku-transformaciju/"
+  },
+  "republika": {
+    "source_url": "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page=1",
+    "expected_url": "https://www.republika.rs/vesti/politika/756646/ovo-je-arhitektonsko-remek-delo-cudo-predsednik-vucic-prisustvovao-spajanju-konstrukcije-na-mostu-preko-dunava-foto"
+  }
+}

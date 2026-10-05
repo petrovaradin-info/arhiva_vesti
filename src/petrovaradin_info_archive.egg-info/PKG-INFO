@@ -2,7 +2,7 @@ Metadata-Version: 2.4
 Name: petrovaradin-info-archive
 Version: 0.1.0
 Summary: Istorijsko otkrivanje i arhiviranje vesti o Petrovaradinu
-Requires-Python: >=3.11
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: beautifulsoup4>=4.12
 Requires-Dist: httpx>=0.27
@@ -62,6 +62,33 @@ Selektori i URL interne pretrage nalaze se u `config/sites.yaml`. Portali menjaj
 pa selektore treba proveriti i prilagoditi po sajtu. Generički `a[href]` hvata širi skup,
 a baza uklanja duplikate.
 
+### Dijagnostika interne pretrage
+
+Log prikazuje planirani URL pre pokretanja browsera, svaki pokušaj navigacije,
+stvarni URL posle učitavanja i status svakog kandidata: `accepted`, `duplicate`,
+`blocklist`, `non_article`, `outside_domain` ili `no_keyword`. Posle upisa sledi
+`baza status=new/existing`. `accepted` znači kandidat za proveru, ne arhiviran članak.
+Postojeća lista `blocklist` odbacuje URL prefikse; `exclude_url_patterns` odbacuje
+URL-ove po regularnim izrazima. Log omogućava pregled pre dopunjavanja ovih lista.
+
+Razlikuju se `browser_start_error` (nijedna stranica još nije otvorena),
+`navigation_error`, `rate_limited`, `challenge`, `results_timeout`, `repeated_page`,
+`no_next_link`, `no_next_cursor` i `max_pages`. Nedostajući selektor ili zaštitna
+provera više se ne predstavljaju kao potvrđeno prazna pretraga.
+
+Relativni Chrome profili rešavaju se u odnosu na koren projekta. Buka i KoSSev
+imaju po jedan ponovni pokušaj sa privremenim profilom ako Chrome ne uspe da
+pokrene sesiju. Postojeći profil se ne briše; privremeni profil se uklanja po
+zatvaranju browsera. Zaštitna provera ostaje ručna u otvorenom browseru (do 120 s).
+
+Beta prvo otvara početnu stranicu, zatim pretragu i prati stvarne `rel=next`
+linkove. HTTP 429 u browseru prijavljuje se kao ograničenje zahteva i prekida
+prolaz; ponoviti kasnije. Mašina koristi `https://www.masina.rs/?s=petrovaradin`.
+021 prati stvarne GSC kontrole, a `google_supplement: true` pokreće Google
+`site:` pretragu i kada interna pretraga već ima rezultate. Ni Google ni GSC ne
+garantuju kompletnu arhivu; dostupni su i `--provider sitemap`, `--provider scan`
+i ručni uvoz URL-ova. Eksplicitni `--provider google` sprečava duplu dopunu.
+
 ## Ručni uvoz URL-ova
 
 CSV treba da ima kolonu `url` ili `link`; TXT treba da ima jedan URL po redu:
@@ -115,6 +142,30 @@ lokalna kopija čak i ako originalni URL kasnije nestane.
 SQLite tabela `discoveries` pamti svaki izvor koji je pronašao URL, čak i kada je
 sam URL već postojao u tabeli `urls`.
 
+## Prenete vesti i adapteri
+
+Posle arhiviranja HTML-a adapter izdvaja naslov, datum, glavni tekst, canonical URL i,
+kada je eksplicitno naveden uz oznaku poput `Izvor` ili `Preneto`, URL originalne vesti.
+Podržani su WordPress, Drupal i generički adapter; WordPress i Drupal se mogu i
+automatski prepoznati. Izvor može eksplicitno zadati `adapter: wordpress` u
+`config/sites.yaml`.
+
+Sve kopije ostaju sačuvane kao zasebni arhivski dokazi. Identičan ili veoma sličan
+tekst povezuje se preko `duplicate_group_id`, a redovna pretraga prikazuje primarni
+rezultat i broj dodatnih kopija umesto ponavljanja iste vesti. Stare arhive se
+analiziraju jednom, a nove automatski tokom preuzimanja:
+
+```powershell
+petrovaradin-archive analyze --limit 3000
+petrovaradin-archive analyze --site razglas_news --limit 500
+petrovaradin-archive duplicates --limit 100
+```
+
+BUKA je podešena kao web-search i WordPress izvor (`https://6yka.com/?s=petrovaradin`).
+Za izvore koji
+često prenose tuđe vesti postoji informativna oznaka `syndication_prone: true`; ona
+ne utiče na dostupnost i ne briše sadržaj.
+
 ## Upravljanje izvorima
 
 Izvori se sinhronizuju iz `config/sites.yaml` u SQLite tabelu `sources`. Operativne
@@ -146,6 +197,46 @@ ne prikazuje. Posle pojedinačnih odobrenja izvor se može uključiti za javni p
 
 ```powershell
 petrovaradin-archive search Petrovaradin --limit 100
+```
+
+## Dokumenti, slike i potpuna sitemap provera
+
+Arhiva čuva HTML page source, kao i povezane PDF/DOC/DOCX/ODT dokumente i slike.
+Za PDF, DOCX, ODT i tekstualne formate izdvaja se tekst koji ulazi u redovnu pretragu.
+Podrazumevani limiti su 30 MB po dokumentu, 8 MB po slici, 25 priloga i 60 MB svih
+priloga po jednoj stranici. Menjaju se u `config/settings.yaml`.
+
+```powershell
+petrovaradin-archive assets --status archived --limit 100
+petrovaradin-archive download-assets --kind document --limit 500
+petrovaradin-archive download-assets --kind image --limit 500
+petrovaradin-archive assets-requeue --status failed --kind document
+petrovaradin-archive clean-urls
+petrovaradin-archive robots-recheck
+petrovaradin-archive audit-sources
+petrovaradin-archive coverage
+```
+
+Za sajtove sa lošom internom pretragom postoji spora, resumable provera sadržaja
+svakog URL-a iz sitemapova. Već provereni URL-ovi pamte se u tabeli `scan_checks`:
+
+```powershell
+petrovaradin-archive discover --provider scan --site skupstina_ns
+petrovaradin-archive discover --provider scan --site nsurbanizam
+```
+
+Besplatna Google `site:` pretraga preko Seleniuma postoji bez API ključa, ali Google
+može prikazati consent ili anti-bot stranicu i tada vratiti nula rezultata:
+
+```powershell
+petrovaradin-archive discover --provider google --site skupstina_ns
+```
+
+Postoji i DuckDuckGo HTML fallback bez API-ja. Pretraživač može privremeno vratiti
+HTTP 403 ako se proverava mnogo izvora u jednom prolazu, pa ga pokretati po izvoru:
+
+```powershell
+petrovaradin-archive discover --provider ddg --site skupstina_ns
 ```
 
 ## Važne napomene
