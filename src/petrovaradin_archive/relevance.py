@@ -129,23 +129,26 @@ class RelevanceReview:
     def decide(self, row_id, label, reason, evidence):
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
-            row = self.db.execute("SELECT * FROM urls WHERE id=?", (row_id,)).fetchone()
-            if not row or row["download_status"] not in {"awaiting_review", "archived", "rejected"}:
-                raise ValueError("Vest nije spremna za pregled.")
-            self.validate(label, reason, evidence, row["article_text"] or "")
-            status, review, access = {
-                "direct": ("archived", "approved", "visible"),
-                "context": ("archived", "approved", "visible"),
-                "irrelevant": ("rejected", "rejected", "hidden"),
-                "uncertain": ("awaiting_review", "pending", "hidden"),
-            }[label]
-            self.db.execute("""INSERT INTO relevance_decisions
-              (url_id,label,reason,evidence,text_hash,rules_version,previous_status)
-              VALUES (?,?,?,?,?,?,?)""", (row_id, label, reason, evidence,
-              fingerprint(row["article_text"]), VERSION, row["download_status"]))
-            self.db.execute("""UPDATE urls SET download_status=?, review_status=?,
-              access_status=?, requires_manual_review=1 WHERE id=?""",
-              (status, review, access, row_id))
+            self._decide(row_id, label, reason, evidence)
+
+    def _decide(self, row_id, label, reason, evidence):
+        row = self.db.execute("SELECT * FROM urls WHERE id=?", (row_id,)).fetchone()
+        if not row or row["download_status"] not in {"awaiting_review", "archived", "rejected"}:
+            raise ValueError("Vest nije spremna za pregled.")
+        self.validate(label, reason, evidence, row["article_text"] or "")
+        status, review, access = {
+            "direct": ("archived", "approved", "visible"),
+            "context": ("archived", "approved", "visible"),
+            "irrelevant": ("rejected", "rejected", "hidden"),
+            "uncertain": ("awaiting_review", "pending", "hidden"),
+        }[label]
+        self.db.execute("""INSERT INTO relevance_decisions
+          (url_id,label,reason,evidence,text_hash,rules_version,previous_status)
+          VALUES (?,?,?,?,?,?,?)""", (row_id, label, reason, evidence,
+          fingerprint(row["article_text"]), VERSION, row["download_status"]))
+        self.db.execute("""UPDATE urls SET download_status=?, review_status=?,
+          access_status=?, requires_manual_review=1 WHERE id=?""",
+          (status, review, access, row_id))
 
 
 def run(args):
@@ -163,6 +166,17 @@ def run(args):
             print(f"Uvezeno predloga: {count}. Potrebna je ljudska potvrda.")
         elif args.relevance_action == "show":
             print(json.dumps(review.show(args.id), ensure_ascii=False, indent=2))
+        elif args.relevance_action == "page":
+            from .review_ui import export_page
+            packet = json.loads(args.batch.read_text(encoding="utf-8-sig"))
+            count = export_page(review, packet["batch_id"], args.out)
+            print(f"Pregled: {args.out.resolve()}; vesti: {count}")
+        elif args.relevance_action == "import-decisions":
+            from .review_ui import import_decisions
+            result = import_decisions(review, json.loads(args.path.read_text(encoding="utf-8-sig")), args.apply)
+            print(json.dumps(result, ensure_ascii=False))
+            if not args.apply:
+                print("Provera bez promene odluka. Za upis dodaj --apply.")
         else:
             review.decide(args.id, args.label, args.reason, args.evidence)
             print(f"Sacuvana ljudska odluka za #{args.id}: {args.label}")
@@ -188,5 +202,11 @@ def register(sub):
     decision.add_argument("label", choices=LABELS)
     decision.add_argument("--reason", required=True)
     decision.add_argument("--evidence", required=True)
-    for command in (batch, imp, show, decision):
+    page = actions.add_parser("page", help="HTML pregled za ljudsku potvrdu")
+    page.add_argument("batch", type=Path)
+    page.add_argument("--out", type=Path, required=True)
+    decisions = actions.add_parser("import-decisions", help="Provera i uvoz odluka iz HTML pregleda")
+    decisions.add_argument("path", type=Path)
+    decisions.add_argument("--apply", action="store_true", help="Upisi ljudske odluke u bazu")
+    for command in (batch, imp, show, decision, page, decisions):
         command.set_defaults(func=run)
