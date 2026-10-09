@@ -11,6 +11,16 @@ from .article_adapters import content_fingerprint, hamming_distance, simhash
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
+CREATE TABLE IF NOT EXISTS source_links (
+  article_id INTEGER NOT NULL REFERENCES urls(id),
+  url TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  context TEXT NOT NULL DEFAULT '',
+  discovered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(article_id, url, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_source_links_domain ON source_links(domain);
 CREATE TABLE IF NOT EXISTS search_coverage (
   search_key TEXT PRIMARY KEY,
   completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -822,6 +832,9 @@ class ArchiveDB:
             self.connection.execute(
                 f"DELETE FROM discoveries WHERE canonical_url IN ({canonical_placeholders})", canonicals
             )
+        self.connection.execute(
+            f"DELETE FROM source_links WHERE article_id IN ({placeholders})", row_ids
+        )
         cursor = self.connection.execute(
             f"DELETE FROM urls WHERE id IN ({placeholders})", row_ids
         )
@@ -835,6 +848,7 @@ class ArchiveDB:
             "SELECT COUNT(*) FROM discoveries"
         ).fetchone()[0]
         self.connection.execute("DELETE FROM discoveries")
+        self.connection.execute("DELETE FROM source_links")
         self.connection.execute("DELETE FROM urls")
         self.connection.execute("DELETE FROM bad_urls")
         self.connection.commit()
@@ -842,3 +856,28 @@ class ArchiveDB:
 
     def close(self) -> None:
         self.connection.close()
+
+    def store_source_links(self, article_id: int, links) -> int:
+        from urllib.parse import urlsplit
+        from .source_hunter import valid_url
+        added = 0
+        for link in links:
+            url = valid_url(link.url, link.url)
+            if url is None:
+                continue
+            cursor = self.connection.execute(
+                "INSERT OR IGNORE INTO source_links(article_id,url,domain,kind,context) "
+                "VALUES(?,?,?,?,?)",
+                (article_id, url, urlsplit(url).hostname, link.kind, link.context),
+            )
+            added += cursor.rowcount
+        self.connection.commit()
+        return added
+
+    def source_link_rows(self, limit=100, domain=None):
+        return list(self.connection.execute(
+            "SELECT l.*, u.url AS article_url FROM source_links l "
+            "JOIN urls u ON u.id=l.article_id "
+            "WHERE (? IS NULL OR l.domain=?) ORDER BY l.discovered_at DESC, l.article_id, l.url "
+            "LIMIT ?", (domain, domain, limit),
+        ))

@@ -14,6 +14,7 @@ from selenium import webdriver
 from .article_adapters import extract_article
 from .content import content_kind, decode_html, extract_text, safe_extension, url_extension
 from .database import ArchiveDB
+from .source_hunter import SourceLink, valid_url
 from .http import PoliteClient
 from .logging_utils import log
 from .urltools import host_matches
@@ -142,6 +143,13 @@ class Downloader:
                     final_url = str(response.url)
                     http_status = response.status_code
                     headers = dict(response.headers)
+                redirect_urls = [str(hop.url) for hop in response.history] if response is not None else []
+                redirect_urls.append(final_url)
+                self.db.store_source_links(row["id"], [
+                    SourceLink(url, "redirect", row["url"])
+                    for url in redirect_urls
+                    if valid_url(url, url) != valid_url(row["url"], row["url"])
+                ])
                 kind = content_kind(final_url, content_type)
                 if kind not in {"html", "pdf", "document", "image"}:
                     raise ValueError(f"Unsupported content type: {content_type}")
@@ -168,6 +176,14 @@ class Downloader:
                     matched = any(word in discovery_context for word in self.keywords)
                 if not matched and mode == "hybrid" and kind == "html":
                     content, final_url = self._render(row["url"])
+                    if valid_url(final_url, final_url) != valid_url(row["url"], row["url"]):
+                        self.db.store_source_links(
+                            row["id"], [SourceLink(final_url, "redirect", row["url"])]
+                        )
+                    if domains and not host_matches(final_url, domains):
+                        self.db.mark_bad_redirect(row["id"], final_url)
+                        counts["bad_redirect"] += 1
+                        continue
                     text = extract_text(content, "html", final_url).casefold()
                     matched = any(word in text for word in self.keywords)
                     rendered = True
@@ -218,6 +234,7 @@ class Downloader:
                         adapter_name=article.adapter_name,
                         image_url=article.image_url,
                     )
+                    self.db.store_source_links(row["id"], article.source_links)
                     if self.candidate_keywords:
                         lokacija_text = " ".join(filter(None, [article.title, article.body_text]))
                         self.db.set_lokacija(
