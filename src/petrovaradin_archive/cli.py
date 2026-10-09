@@ -86,6 +86,11 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
+    from .parallel_discover import run_discovery
+    return run_discovery(args)
+
+
+def _cmd_discover_serial(args: argparse.Namespace) -> int:
     root, settings, sites, db, client = context(args.config_dir)
     keywords = settings.get("keywords", ["Petrovaradin"])
     providers = []
@@ -107,6 +112,8 @@ def cmd_discover(args: argparse.Namespace) -> int:
     added = seen = 0
     try:
         for site in choose_sites(sites, args.site, db):
+            if getattr(args, "stop_event", None) is not None and args.stop_event.is_set():
+                break
             if getattr(args, 'newest_first', False):
                 site = dict(site)
                 site['internal_search'] = dict(site.get('internal_search', {}), newest_first=True)
@@ -118,6 +125,8 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 site["wordpress_search"]["max_pages"] = args.max_pages
                 site["google_max_pages"] = args.max_pages
             for provider in providers:
+                if getattr(args, "stop_event", None) is not None and args.stop_event.is_set():
+                    break
                 provider_started = perf_counter()
                 if provider.name == "google_site_search":
                     provider.known_urls = db.known_urls(site['id'])
@@ -125,6 +134,8 @@ def cmd_discover(args: argparse.Namespace) -> int:
                 provider_seen = 0
                 try:
                     for item in provider.discover(site):
+                        if getattr(args, "stop_event", None) is not None and args.stop_event.is_set():
+                            break
                         provider_seen += 1
                         seen += 1
                         is_new = db.add(item)
@@ -152,6 +163,8 @@ def cmd_discover(args: argparse.Namespace) -> int:
                     fallback_started = perf_counter()
                     try:
                         for item in fallback.discover(site):
+                            if getattr(args, "stop_event", None) is not None and args.stop_event.is_set():
+                                break
                             seen += 1
                             is_new = db.add(item)
                             added += int(is_new)
@@ -301,6 +314,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
                     adapter_name=article.adapter_name,
                     image_url=article.image_url,
                 )
+                db.store_source_links(row["id"], article.source_links)
                 if candidate_keywords:
                     lokacija_text = " ".join(filter(None, [article.title, article.body_text]))
                     db.set_lokacija(row["id"], detect_locations(lokacija_text, candidate_keywords))
@@ -788,10 +802,58 @@ def positive_int(value: str) -> int:
     return number
 
 
+def cmd_hunt_sources(args):
+    from .source_hunter import SourceLink, valid_url
+    root, settings, sites, db, client = context(args.config_dir)
+    scanned = added = failed = 0
+    try:
+        if not args.list:
+            rows = db.connection.execute(
+                "SELECT u.*, s.config_json FROM urls u LEFT JOIN sources s ON s.id=u.site_id "
+                "WHERE u.id>? AND (? IS NULL OR u.site_id=?) "
+                "AND (u.archive_path IS NOT NULL OR u.final_url IS NOT NULL) "
+                "ORDER BY u.id LIMIT ?",
+                (args.after_id, args.site, args.site, args.limit),
+            ).fetchall()
+            for row in rows:
+                try:
+                    final = row['final_url'] or row['url']
+                    if valid_url(final, final) != valid_url(row['url'], row['url']):
+                        added += db.store_source_links(row['id'], [SourceLink(final, 'redirect')])
+                    if row['archive_path'] and row['media_kind'] == 'html':
+                        path = resolve_path(root, row['archive_path'])
+                        content = gzip.decompress(path.read_bytes()) if path.suffix == '.gz' else path.read_bytes()
+                        config = json.loads(row['config_json'] or '{}')
+                        article = extract_article(content, final, config.get('adapter', 'generic'),
+                                                  config.get('body_selector'), config.get('strip_selectors'))
+                        added += db.store_source_links(row['id'], article.source_links)
+                    scanned += 1
+                except Exception as exc:
+                    failed += 1
+                    print(f"#{row['id']}: {exc}", file=sys.stderr)
+            print(json.dumps({'scanned': scanned, 'added': added, 'failed': failed,
+                              'last_id': rows[-1]['id'] if rows else args.after_id}))
+        else:
+            print(json.dumps([dict(row) for row in db.source_link_rows(args.limit, args.domain)],
+                             ensure_ascii=False, indent=2))
+    finally:
+        db.close()
+        client.close()
+    return int(failed > 0)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="petrovaradin-archive")
     parser.add_argument("--config-dir", type=Path, help="Alternativni config direktorijum")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    hunt = sub.add_parser("hunt-sources", help="Sakuplja izvore iz sacuvanih vesti")
+    hunt.add_argument("--list", action="store_true", help="Prikazuje pronadjene URL-ove")
+    hunt.add_argument("--limit", type=positive_int, default=1000)
+    hunt.add_argument("--after-id", type=int, default=0)
+    hunt.add_argument("--site")
+    hunt.add_argument("--domain")
+    hunt.set_defaults(func=cmd_hunt_sources)
 
     init = sub.add_parser("init", help="Kreira bazu i data direktorijume")
     init.set_defaults(func=cmd_init)
@@ -800,6 +862,8 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("--provider", action="append",
                           choices=["sitemap", "selenium", "wordpress", "google", "ddg", "scan"],
                           required=True)
+    discover.add_argument("--workers", type=positive_int, default=1,
+                          help="Broj paralelnih izvora; jedan radnik po izvoru")
     discover.add_argument("--site", action="append", help="ID sajta; izostaviti za sve")
     discover.add_argument("--full-scan", action="store_true",
                           help="Isključi hronološko skraćivanje; stranica samo sa duplikatima i dalje završava sajt")

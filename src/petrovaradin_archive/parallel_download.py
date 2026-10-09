@@ -15,9 +15,9 @@ from .logging_utils import log
 
 
 @contextmanager
-def download_lock(database: Path):
+def download_lock(database: Path, operation: str = "download"):
     """OS-owned lock: released even if the process crashes; never delete the file."""
-    lock_path = database.with_suffix(database.suffix + '.download.lock')
+    lock_path = database.with_suffix(database.suffix + f'.{operation}.lock')
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open('a+b') as handle:
         handle.seek(0, 2)
@@ -33,7 +33,7 @@ def download_lock(database: Path):
                 import fcntl
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            raise SystemExit('Download već radi nad ovom bazom. Koristi --workers u jednom pokretanju.') from exc
+            raise SystemExit(f'{operation.capitalize()} već radi nad ovom bazom. Koristi --workers u jednom pokretanju.') from exc
         try:
             yield
         finally:

@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlsplit
 from bs4 import BeautifulSoup, Tag
 
 from .content import decode_html
+from .source_hunter import SourceLink, collect_links
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class ArticleData:
     original_source_url: str | None
     adapter_name: str
     image_url: str | None = None
+    source_links: tuple[SourceLink, ...] = ()
 
 
 BODY_SELECTORS = {
@@ -98,6 +100,7 @@ def extract_article(
         node.decompose()
     body_text = re.sub(r"\s+", " ", body.get_text(" ", strip=True)).strip()
     return ArticleData(
+        source_links=collect_links(body, soup, page_url),
         title=title,
         body_text=body_text,
         published_at=published,
