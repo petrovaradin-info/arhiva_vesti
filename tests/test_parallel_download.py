@@ -77,7 +77,8 @@ def test_workers_validation():
         build_parser().parse_args(['download', '--workers', '0'])
 
 
-def test_real_worker_uses_own_db_and_processes_selected_rows(tmp_path, monkeypatch):
+@pytest.mark.parametrize('mode', ['http', 'hybrid'])
+def test_real_worker_uses_own_db_and_processes_selected_rows(tmp_path, monkeypatch, mode):
     import httpx
     from petrovaradin_archive.http import PoliteClient
     db, _ = populate(tmp_path)
@@ -86,7 +87,7 @@ def test_real_worker_uses_own_db_and_processes_selected_rows(tmp_path, monkeypat
         200, text='<html><body>Petrovaradin vest</body></html>',
         headers={'content-type': 'text/html'}, request=httpx.Request('GET', url)))
     settings = {'database': 'archive.db', 'html_dir': 'html', 'keywords': ['Petrovaradin']}
-    result = parallel.run_download(tmp_path, settings, db, 3, None, 'http', 2)
+    result = parallel.run_download(tmp_path, settings, db, 3, None, mode, 2)
     assert result['archived'] == 3
     assert [r['download_status'] for r in db.list_urls(None, 3)] == ['archived', 'archived', 'awaiting_review']
     db.close()

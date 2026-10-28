@@ -101,7 +101,7 @@ class Downloader:
                     raise PermissionError("Blocked by robots.txt")
                 response = None
                 requested_kind = content_kind(row["url"])
-                use_browser = mode in {"selenium", "hybrid"} and requested_kind == "html"
+                use_browser = mode == "selenium" and requested_kind == "html"
                 rendered = use_browser
                 if use_browser:
                     strategy = "selenium"

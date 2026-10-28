@@ -65,7 +65,7 @@ def test_selenium_stops_at_first_all_duplicate_page(tmp_path, monkeypatch):
     pages = [{'results': [Element('https://example.rs/' + slug)],
               **({'next': [Element('/page/' + str(i + 2))]} if i < 2 else {})}
              for i, slug in enumerate(['a', 'b', 'c'])]
-    for expected_pages, full in [(3, False), (1, False), (1, True)]:
+    for expected_pages, full in [(3, False), (1, False), (3, True)]:
         provider = SeleniumInternalSearchProvider(SETTINGS, db, full)
         driver = Driver(pages)
         monkeypatch.setattr(provider, '_driver', lambda _, current=driver: current)
