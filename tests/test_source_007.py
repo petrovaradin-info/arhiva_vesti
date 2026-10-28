@@ -73,3 +73,10 @@ def test_http_existing_page_stops_before_next_page():
     assert list(provider.discover(site)) == []
     assert provider.stop_site
     assert client.get.call_count == 1
+
+
+def test_full_scan_continues_past_known_page():
+    from petrovaradin_archive.providers.selenium_search import SeleniumInternalSearchProvider
+    provider = SeleniumInternalSearchProvider({}, full_scan=True)
+    assert not provider._stop_duplicates({'id': 'test'}, ['existing', 'duplicate'], 1, 'https://example.rs')
+    assert not provider.stop_site

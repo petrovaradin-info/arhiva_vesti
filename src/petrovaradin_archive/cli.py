@@ -293,7 +293,13 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     candidate_keywords = settings.get("candidate_keywords", [])
     analyzed = duplicates = failed = 0
     try:
-        for row in db.unanalyzed_html_rows(args.limit, args.site):
+        rows = db.unanalyzed_html_rows(args.limit, args.site)
+        started = perf_counter()
+        log(f"Analiza: preostalo u ovom prolazu={len(rows)}", flush=True)
+        for position, row in enumerate(rows, 1):
+            item_started = perf_counter()
+            log(f"Analiza [{position}/{len(rows)}] #{row['id']} [{row['site_id']}] "
+                f"{row['url']}", flush=True)
             try:
                 path = Path(row["archive_path"])
                 if path.suffix == ".gz":
@@ -322,7 +328,11 @@ def cmd_analyze(args: argparse.Namespace) -> int:
                 duplicates += int(group_id != row["id"])
             except Exception as exc:
                 failed += 1
-                print(f"#{row['id']} analiza nije uspela: {exc}", file=sys.stderr)
+                print(f"#{row['id']} analiza nije uspela: {exc}", file=sys.stderr, flush=True)
+            finally:
+                log(f"Analiza [{position}/{len(rows)}] zavrseno; "
+                    f"{elapsed(item_started)}; ukupno={perf_counter()-started:.1f}s; "
+                    f"uspesno={analyzed}; kopije={duplicates}; greske={failed}", flush=True)
     finally:
         db.close()
         client.close()
@@ -866,7 +876,7 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Broj paralelnih izvora; jedan radnik po izvoru")
     discover.add_argument("--site", action="append", help="ID sajta; izostaviti za sve")
     discover.add_argument("--full-scan", action="store_true",
-                          help="Isključi hronološko skraćivanje; stranica samo sa duplikatima i dalje završava sajt")
+                          help="Pregledaj i starije strane čak i kada su svi rezultati na strani već poznati")
     discover.add_argument("--newest-first", action="store_true",
                           help="Potvrđen hronološki redosled interne pretrage; ne važi za Google CSE")
     discover.add_argument(

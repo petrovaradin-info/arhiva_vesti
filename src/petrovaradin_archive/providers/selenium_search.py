@@ -45,7 +45,8 @@ class SeleniumInternalSearchProvider:
         log(f"  [{site['id']}] {message}")
 
     def _stop_duplicates(self, site, statuses, page, url):
-        if statuses and all(status in {'existing', 'duplicate'} for status in statuses):
+        if not self.full_scan and statuses and all(
+                status in {'existing', 'duplicate'} for status in statuses):
             self.stop_site = True
             self._log(site, f"status=all_duplicates; strana={page}; "
                       f"svi URL-ovi rezultata su duplikati; prelazim na sledeći sajt; URL={url}")

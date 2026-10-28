@@ -232,3 +232,21 @@ petrovaradin-archive discover --provider ddg --site skupstina_ns
 - Oficirac, Mišeluk, Tranžament, Tekije, Alibegovac i Vezirac evidentirani su kao
   kandidati za kasnije, ali još nisu uključeni u pretragu.
 - `robots.txt` je uključen po defaultu. Ne isključivati ga bez pravne i etičke procene.
+
+
+## Ponovno puno sakupljanje sa šest radnika
+
+```powershell
+.\.venv\Scripts\python.exe scripts/resume_archive.py
+```
+
+Sitemap i interne pretrage rade kroz šest izvora istovremeno; `--full-scan`
+nastavlja preko poznatih stranica radi starijih vesti. Novi pending URL-ovi
+preuzimaju se tokom sakupljanja sa šest radnika, prvo HTTP-om uz Selenium
+proveru kada ključna reč nedostaje (`hybrid`). Jedan izvor ima jednog radnika
+po fazi; HTTP razmak i robots pravila ostaju uključeni. Poznati normalizovani
+URL-ovi se ne dodaju ponovo, a postojeće arhive ostaju sačuvane.
+Posle otkrivanja prazni se red vesti, zatim priloga (do tri prolaza zbog retry).
+Log je `data/archive-YYYYMMDD-HHMMSS.log`. Ponovno pokretanje nastavlja iz baze.
+Ne pokretati dve instance skripte istovremeno; postojeće brave štite pojedine faze.
+Potpunost zavisi od dostupnosti portala, njihovih paginacija i podešenih limita.
