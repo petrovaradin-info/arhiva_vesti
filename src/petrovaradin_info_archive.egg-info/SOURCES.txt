@@ -12,6 +12,11 @@ src/petrovaradin_archive/importer.py
 src/petrovaradin_archive/keywords.py
 src/petrovaradin_archive/logging_utils.py
 src/petrovaradin_archive/models.py
+src/petrovaradin_archive/parallel_discover.py
+src/petrovaradin_archive/parallel_download.py
+src/petrovaradin_archive/relevance.py
+src/petrovaradin_archive/review_ui.py
+src/petrovaradin_archive/source_hunter.py
 src/petrovaradin_archive/special.py
 src/petrovaradin_archive/urltools.py
 src/petrovaradin_archive/providers/__init__.py
@@ -35,10 +40,15 @@ tests/test_database.py
 tests/test_http.py
 tests/test_http_search.py
 tests/test_keywords.py
+tests/test_parallel_discover.py
+tests/test_parallel_download.py
+tests/test_relevance.py
+tests/test_review_ui.py
 tests/test_selenium_search.py
 tests/test_source_002_selectors.py
 tests/test_source_005.py
 tests/test_source_006.py
 tests/test_source_007.py
+tests/test_source_hunter.py
 tests/test_special.py
 tests/test_urltools.py
