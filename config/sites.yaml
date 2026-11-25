@@ -598,3 +598,27 @@ sites:
     enabled: true
     manual_review: true
     internal_search: {enabled: true, engine: selenium, start_url: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page=1", page_url_template: "https://www.republika.rs/pretraga-vesti?search_parameter=petrovaradin&page={page}", result_link_css: ".search-page .news-list .news-item-title a[href]", next_css: "a[rel='next'], a.next", max_pages: 200}
+
+  - id: "ndnv"
+    name: "Nezavisno društvo novinara Vojvodine"
+    domains: ["ndnv.org", "www.ndnv.org"]
+    enabled: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://www.ndnv.org/?s=petrovaradin", result_link_css: "article h2 a[href], article h3 a[href], .entry-title a[href], .search-results h2 a[href]", next_css: "a[rel='next'], a.next, .pagination .next a", max_pages: 100}
+
+  - id: "izlaz"
+    name: "Izlaz"
+    domains: ["izlaz.com", "www.izlaz.com"]
+    enabled: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://izlaz.com/?swp_form%5Bform_id%5D=1&s=Petrovaradin", result_link_css: "main a.h-full[href]", next_css: ".nav-links a.next.page-numbers[href]", max_pages: 100}
+
+  - id: "insajder"
+    name: "Insajder"
+    domains: ["insajder.net", "www.insajder.net"]
+    enabled: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://insajder.net/search?query=petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href], main a[href*='/teme/'], main a[href*='/vesti/']", next_css: "a[rel='next'], .pagination .next a, a.next", max_pages: 100}
+
+  - id: "al_jazeera_balkans"
+    name: "Al Jazeera Balkans"
+    domains: ["balkans.aljazeera.net"]
+    enabled: true
+    internal_search: {enabled: true, engine: selenium, start_url: "https://balkans.aljazeera.net/search/petrovaradin", result_link_css: "article a[href], main h2 a[href], main h3 a[href], a.u-clickable-card__link[href]", next_css: "a[rel='next'], .pagination .next a, a.next", max_pages: 100}
